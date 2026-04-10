@@ -10,9 +10,28 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 import os
+import warnings
 
 import numpy as np
 import pandas as pd
+
+
+def _warn_and_is_invalid_hr_po(ride: pd.DataFrame, ride_idx: int, context: str) -> bool:
+    """Warn and return True when ride misses hr/po or contains only NaN values."""
+    issues: list[str] = []
+    for col in ("hr", "po"):
+        if col not in ride.columns:
+            issues.append(f"missing '{col}' column")
+            continue
+        values = pd.to_numeric(ride[col], errors="coerce")
+        if int(values.notna().sum()) == 0:
+            issues.append(f"'{col}' column is empty (100% NaN)")
+
+    if issues:
+        msg = f"[{context}] ride {ride_idx}: {'; '.join(issues)}. Ride skipped."
+        warnings.warn(msg, UserWarning)
+        return True
+    return False
 
 
 def _ml_imports() -> tuple[Any, Any, Any]:
@@ -72,6 +91,8 @@ def add_features_to_rides(rides: list[pd.DataFrame]) -> list[pd.DataFrame]:
             raise TypeError(
                 f"ride {idx}: unsupported type ({type(ride).__name__}), expected pd.DataFrame"
             )
+        if _warn_and_is_invalid_hr_po(ride, idx, "Preparation"):
+            continue
         rides_features.append(add_features(ride))
     return rides_features
 
@@ -102,16 +123,34 @@ def format_datetime_for_title(dt: datetime) -> str:
     return dt.strftime("%d/%m/%Y %H:%M:%S")
 
 
+def _resolve_data_path(dir_path: str | os.PathLike) -> Path:
+    """Resolve relative paths from backend directory."""
+    p = Path(dir_path)
+    if p.is_absolute():
+        return p
+    # Resolve relative to backend directory
+    backend_dir = Path(__file__).parent.parent.parent
+    resolved = (backend_dir / p).resolve()
+    return resolved
+
+
 def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
-    """Load and enrich ride data from pickle files in directory."""
-    sorties = list_files(dir_path)
+    """Load and enrich ride data from pickle files in directory.
+
+    Args:
+        dir_path: Directory path (relative from backend or absolute).
+                 Relative paths resolve from backend root directory.
+                 Example: "../../notebook/rides/cyclist9"
+    """
+    resolved_dir = _resolve_data_path(dir_path)
+    sorties = list_files(resolved_dir)
 
     rides = []
     ride_datetimes = []
     for sortie in sorted(
         [s for s in sorties if ".pkl" in s], key=parse_datetime_from_ride_filename
     ):
-        fichier = os.path.join(dir_path, sortie)
+        fichier = resolved_dir / sortie
         ride = pd.read_pickle(fichier)
         dt = parse_datetime_from_ride_filename(sortie)
         rides.append(ride)
@@ -146,7 +185,24 @@ def prediction(
         (["po", "work", "work2"] + po_lag_cols) if with_work else (["po"] + po_lag_cols)
     )
 
+    valid_ride_mask = [False] * len(rides_feat)
+    for idx, ride in enumerate(rides_feat, start=1):
+        if _warn_and_is_invalid_hr_po(ride, idx, "Prediction"):
+            continue
+        missing = [col for col in features if col not in ride.columns]
+        if missing:
+            warnings.warn(
+                f"[Prediction] ride {idx}: missing regression columns {missing[:5]}. Ride skipped.",
+                UserWarning,
+            )
+            continue
+        valid_ride_mask[idx - 1] = True
+
+    valid_train_indices: list[int] = []
+
     for i, ride_train in enumerate(rides_feat):
+        if not valid_ride_mask[i]:
+            continue
         x_train = ride_train.loc[:, features]
         y_train = ride_train["hr"]
         valid_mask = x_train.notna().all(axis=1) & y_train.notna()
@@ -156,14 +212,23 @@ def prediction(
 
         reg = lm.LinearRegression(fit_intercept=True)
         reg.fit(x_train.loc[valid_mask], y_train.loc[valid_mask])
+        valid_train_indices.append(i + 1)
 
-        for ride_target in rides_feat:
+        for j, ride_target in enumerate(rides_feat):
+            if not valid_ride_mask[j]:
+                continue
             x_target = ride_target.loc[:, features]
             pred = pd.Series(np.nan, index=ride_target.index, dtype=float)
             target_valid = x_target.notna().all(axis=1)
             if target_valid.any():
                 pred.loc[target_valid] = reg.predict(x_target.loc[target_valid])
             ride_target[f"pred{i + 1}"] = pred
+
+    if len(valid_train_indices) == 0:
+        warnings.warn(
+            "No exploitable ride found for training (too many NaN or insufficient valid points).",
+            UserWarning,
+        )
 
     return rides_feat
 
@@ -189,12 +254,18 @@ def prediction_with_prev_rides(
         (["po", "work", "work2"] + po_lag_cols) if with_work else (["po"] + po_lag_cols)
     )
 
-    for ride in rides_feat:
+    valid_ride_mask = [False] * len(rides_feat)
+    for idx, ride in enumerate(rides_feat, start=1):
+        if _warn_and_is_invalid_hr_po(ride, idx, "Prediction prev rides"):
+            continue
+        valid_ride_mask[idx - 1] = True
         ride["pred_prevx"] = np.nan
 
     for i, _ in enumerate(rides_feat):
+        if not valid_ride_mask[i]:
+            continue
         start = max(0, i - x_prev_rides)
-        train_slice = rides_feat[start:i]
+        train_slice = [rides_feat[j] for j in range(start, i) if valid_ride_mask[j]]
 
         x_parts, y_parts = [], []
         for r in train_slice:
@@ -257,7 +328,12 @@ def prediction_arx_with_prev_rides_no_fuite(
     if len(rides_feat) == 0:
         return []
 
-    for ride in rides_feat:
+    valid_ride_mask = [False] * len(rides_feat)
+
+    for idx, ride in enumerate(rides_feat, start=1):
+        if _warn_and_is_invalid_hr_po(ride, idx, "Prediction ARX no fuite"):
+            continue
+        valid_ride_mask[idx - 1] = True
         hr_num = pd.to_numeric(ride["hr"], errors="coerce")
         for k in range(1, n_hr_lags + 1):
             ride[f"hr_lag_{k}"] = hr_num.shift(k)
@@ -283,8 +359,10 @@ def prediction_arx_with_prev_rides_no_fuite(
         )
 
     for i, _ in enumerate(rides_feat):
+        if not valid_ride_mask[i]:
+            continue
         start = max(0, i - x_prev_rides)
-        train_slice = rides_feat[start:i]
+        train_slice = [rides_feat[j] for j in range(start, i) if valid_ride_mask[j]]
 
         x_parts, y_parts, start_hr_vals = [], [], []
         for r in train_slice:
@@ -397,8 +475,12 @@ def prediction_arx_from_selected_ride(
         target_indices_zb = [to_zero_based(i) for i in target_ride_indices]
 
     rides_out = [r.copy() for r in rides_feat]
+    valid_ride_mask = [False] * len(rides_out)
 
-    for ride in rides_out:
+    for idx, ride in enumerate(rides_out, start=1):
+        if _warn_and_is_invalid_hr_po(ride, idx, "Prediction ARX selected"):
+            continue
+        valid_ride_mask[idx - 1] = True
         hr_num = pd.to_numeric(ride["hr"], errors="coerce")
         for k in range(1, n_hr_lags + 1):
             ride[f"hr_lag_{k}"] = hr_num.shift(k)
@@ -422,7 +504,22 @@ def prediction_arx_from_selected_ride(
             lm.Ridge(alpha=float(ridge_alpha), fit_intercept=True, solver="svd"),
         )
 
+    if not valid_ride_mask[train_idx]:
+        warnings.warn(
+            f"[Prediction ARX selected] train ride {train_idx + 1} is invalid (hr/po). No prediction computed.",
+            UserWarning,
+        )
+        return rides_out
+
     r_train = rides_out[train_idx]
+    miss = [c for c in feature_cols + ["hr"] if c not in r_train.columns]
+    if miss:
+        warnings.warn(
+            f"[Prediction ARX selected] train ride missing columns {miss[:5]}. No prediction computed.",
+            UserWarning,
+        )
+        return rides_out
+
     x_train = r_train.loc[:, feature_cols]
     y_train = pd.to_numeric(r_train["hr"], errors="coerce")
     valid = x_train.notna().all(axis=1) & y_train.notna()
@@ -443,7 +540,11 @@ def prediction_arx_from_selected_ride(
         or invalid_ratio > max_nan_ratio
         or valid.sum() < max(20, n_hr_lags + 5)
     ):
-        raise ValueError("Selected train ride is not exploitable for ARX training")
+        warnings.warn(
+            "[Prediction ARX selected] selected train ride is not exploitable for ARX training.",
+            UserWarning,
+        )
+        return rides_out
 
     reg.fit(x_train.loc[valid], y_train.loc[valid])
 
@@ -457,6 +558,12 @@ def prediction_arx_from_selected_ride(
         hr_init = 0.0
 
     for i in target_indices_zb:
+        if not valid_ride_mask[i]:
+            warnings.warn(
+                f"[Prediction ARX selected] target ride {i + 1} is invalid (hr/po). Ride skipped.",
+                UserWarning,
+            )
+            continue
         rt = rides_out[i]
         exog = rt.loc[:, exog_cols].to_numpy(dtype=float)
         y_pred = np.full(len(rt), np.nan, dtype=float)
