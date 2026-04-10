@@ -134,6 +134,100 @@ def _resolve_data_path(dir_path: str | os.PathLike) -> Path:
     return resolved
 
 
+def list_cyclists() -> list[str]:
+    """List all available cyclists from notebook/rides/ directory.
+
+    Returns:
+        List of cyclist names sorted numerically (cyclist0, cyclist1, etc.)
+    """
+    rides_dir = _resolve_data_path("../../notebook/rides")
+    if not rides_dir.exists():
+        raise FileNotFoundError(f"Rides directory not found: {rides_dir}")
+
+    cyclists = []
+    try:
+        for entry in rides_dir.iterdir():
+            if entry.is_dir() and entry.name.startswith("cyclist"):
+                cyclists.append(entry.name)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to list cyclists: {exc}") from exc
+
+    # Sort numerically: cyclist0, cyclist1, ...
+    cyclists.sort(
+        key=lambda x: (
+            int(x.replace("cyclist", "")) if x.replace("cyclist", "").isdigit() else 0
+        )
+    )
+    return cyclists
+
+
+def get_single_ride(cyclist: str, ride_index: int) -> dict[str, Any]:
+    """Return one ride with metadata and summary stats.
+
+    Args:
+        cyclist: Cyclist folder name (e.g. cyclist9).
+        ride_index: 1-based ride index.
+    """
+    if ride_index < 1:
+        raise ValueError("ride_index must be >= 1")
+
+    rides_dir = _resolve_data_path(f"../../notebook/rides/{cyclist}")
+    if not rides_dir.exists() or not rides_dir.is_dir():
+        raise FileNotFoundError(f"Cyclist directory not found: {rides_dir}")
+
+    rides = extract_donnee_pickle(rides_dir)
+    if not rides:
+        raise ValueError(f"No valid rides found for {cyclist}")
+
+    if ride_index > len(rides):
+        raise IndexError(
+            f"ride_index out of range: {ride_index} (available: 1..{len(rides)})"
+        )
+
+    ride = rides[ride_index - 1].copy()
+    ride = ride.replace({np.nan: None})
+
+    # Convert numpy scalar values to native Python for JSON serialization.
+    records = ride.to_dict(orient="records")
+    clean_records: list[dict[str, Any]] = []
+    for row in records:
+        clean_row: dict[str, Any] = {}
+        for key, value in row.items():
+            clean_row[key] = value.item() if isinstance(value, np.generic) else value
+        clean_records.append(clean_row)
+
+    hr_series = (
+        pd.to_numeric(ride["hr"], errors="coerce")
+        if "hr" in ride.columns
+        else pd.Series(dtype=float)
+    )
+    po_series = (
+        pd.to_numeric(ride["po"], errors="coerce")
+        if "po" in ride.columns
+        else pd.Series(dtype=float)
+    )
+
+    def _safe_stat(series: pd.Series, name: str) -> float | None:
+        val = getattr(series, name)()
+        return float(val) if pd.notna(val) else None
+
+    return {
+        "cyclist": cyclist,
+        "ride_index": ride_index,
+        "datetime": ride.attrs.get("ride_datetime_label", "unknown"),
+        "n_points": int(ride.shape[0]),
+        "columns": [str(c) for c in ride.columns.tolist()],
+        "data": clean_records,
+        "stats": {
+            "hr_mean": _safe_stat(hr_series, "mean"),
+            "hr_min": _safe_stat(hr_series, "min"),
+            "hr_max": _safe_stat(hr_series, "max"),
+            "po_mean": _safe_stat(po_series, "mean"),
+            "po_max": _safe_stat(po_series, "max"),
+        },
+    }
+
+
 def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
     """Load and enrich ride data from pickle files in directory.
 
@@ -190,6 +284,7 @@ def prediction(
         if _warn_and_is_invalid_hr_po(ride, idx, "Prediction"):
             continue
         missing = [col for col in features if col not in ride.columns]
+
         if missing:
             warnings.warn(
                 f"[Prediction] ride {idx}: missing regression columns {missing[:5]}. Ride skipped.",

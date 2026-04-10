@@ -8,18 +8,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from pydantic import BaseModel, Field
-
-from app.services.notebook import (
-    AnalysisConfig,
-    run_notebook_analysis,
-    extract_donnee_pickle,
-    _resolve_data_path,
-)
+import app.services.notebook as notebook_service
+import app.services.strava as strava_service
 
 
 app = FastAPI(title="TFE Cycling API", version="0.1.0")
+
+# Enable CORS for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class AnalysisRequest(BaseModel):
@@ -59,6 +69,12 @@ class PipelineRequest(BaseModel):
     selected_target_rides: int | list[int] | None = Field(default=None)
 
 
+class StravaExchangeCodeRequest(BaseModel):
+    """Request payload to exchange Strava OAuth code."""
+
+    code: str = Field(..., min_length=1, description="Strava OAuth code")
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     """Root endpoint returning API status."""
@@ -71,13 +87,118 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/strava/status")
+async def strava_status() -> dict:
+    """Expose Strava env readiness for frontend UI."""
+    return {"ok": True, "status": strava_service.get_strava_status()}
+
+
+@app.get("/strava/auth-url")
+async def strava_auth_url(state: str | None = Query(None)) -> dict:
+    """Build Strava OAuth authorization URL from env settings."""
+    try:
+        url = strava_service.build_authorization_url(state=state)
+        return {"ok": True, "auth_url": url}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Unable to build Strava auth URL: {exc}"
+        ) from exc
+
+
+@app.post("/strava/exchange-code")
+async def strava_exchange_code(payload: StravaExchangeCodeRequest) -> dict:
+    """Exchange OAuth code for tokens and persist them in configured tokens file."""
+    try:
+        result = strava_service.exchange_code_for_tokens(payload.code)
+        return {"ok": True, "result": result}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Unable to exchange Strava code: {exc}"
+        ) from exc
+
+
+@app.get("/strava/activities")
+async def strava_get_activities(
+    limit: int = Query(10, ge=1, le=100, description="Number of activities to fetch")
+) -> dict:
+    """Fetch recent athlete activities from Strava API.
+
+    Requires valid tokens persisted from exchange-code endpoint.
+    Token refresh happens automatically if expired.
+    """
+    try:
+        settings = strava_service.get_strava_settings()
+        tokens = strava_service._load_tokens(settings["tokens_file"])
+
+        # Check and refresh if needed
+        if strava_service._is_token_expired(tokens):
+            new_tokens = strava_service._refresh_tokens(
+                settings["client_id"],
+                settings["client_secret"],
+                tokens.get("refresh_token", ""),
+            )
+            # Preserve athlete data and save refreshed tokens
+            new_tokens["athlete"] = tokens.get("athlete", {})
+            strava_service._save_tokens(new_tokens, settings["tokens_file"])
+            tokens = new_tokens
+
+        access_token = tokens.get("access_token")
+        if not access_token:
+            raise ValueError("No access token in persisted tokens")
+
+        activities = strava_service.get_athlete_activities(
+            access_token=access_token, limit=limit
+        )
+
+        return {
+            "ok": True,
+            "n_activities": len(activities),
+            "activities": activities,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Unable to fetch Strava activities: {exc}"
+        ) from exc
+
+
+@app.get("/cyclists/list")
+async def get_cyclists_list() -> dict:
+    """List all available cyclists."""
+    try:
+        cyclists = notebook_service.list_cyclists()
+        return {
+            "ok": True,
+            "cyclists": cyclists,
+            "n_cyclists": len(cyclists),
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to list cyclists: {exc}"
+        ) from exc
+
+
+@app.get("/rides/training-ride")
+async def get_training_ride(
+    cyclist: str = Query(..., description="Cyclist name (e.g., cyclist9)"),
+    ride_index: int = Query(1, description="Ride index (1-based)"),
+) -> dict:
+    """Get a single training ride data."""
+    try:
+        get_single_ride_fn = getattr(notebook_service, "get_single_ride")
+        return get_single_ride_fn(cyclist, ride_index)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to get ride: {exc}"
+        ) from exc
+
+
 @app.get("/rides/list")
 async def list_rides(
     dir_path: str = Query(..., description="Directory path (relative or absolute)")
 ) -> dict:
     """List available rides in a directory with basic info."""
     try:
-        rides = extract_donnee_pickle(dir_path)
+        rides = notebook_service.extract_donnee_pickle(dir_path)
         ride_list = []
         for i, ride in enumerate(rides, start=1):
             datetime_label = ride.attrs.get("ride_datetime_label", "unknown")
@@ -105,7 +226,7 @@ async def list_rides(
 async def run_analysis(payload: AnalysisRequest) -> dict:
     """Execute analysis on rides using specified configuration."""
     try:
-        config = AnalysisConfig(
+        config = notebook_service.AnalysisConfig(
             dir_path=payload.dir_path,
             selected_models_plot=payload.selected_models_plot,
             selected_models_stats=payload.selected_models_stats,
@@ -115,7 +236,7 @@ async def run_analysis(payload: AnalysisRequest) -> dict:
             selected_train_ride=payload.selected_train_ride,
             selected_target_rides=payload.selected_target_rides,
         )
-        return run_notebook_analysis(config)
+        return notebook_service.run_notebook_analysis(config)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -135,7 +256,7 @@ async def run_pipeline(payload: PipelineRequest) -> dict:
                    ride_datetime, and prediction columns
     """
     try:
-        rides = extract_donnee_pickle(payload.dir_path)
+        rides = notebook_service.extract_donnee_pickle(payload.dir_path)
         if not rides:
             raise ValueError(f"No valid rides found in {payload.dir_path}")
 
