@@ -51,7 +51,7 @@ type StravaActivity = {
 export default function StravaPipelinePage() {
   const router = useRouter();
   const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+    () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
     [],
   );
 

@@ -60,7 +60,7 @@ export default function TrainingRidePreview({
       setError(null);
       try {
         const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+          process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
         const response = await fetch(
           `${apiUrl}/rides/training-ride?cyclist=${cyclist}&ride_index=${rideIndex}`,
           {
