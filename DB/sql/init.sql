@@ -64,6 +64,13 @@ CREATE TABLE IF NOT EXISTS prediction_runs (
   finished_at timestamptz
 );
 
+CREATE TABLE IF NOT EXISTS app_config_secrets (
+  key text PRIMARY KEY,
+  value_enc text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_rides_user_id ON rides(user_id);
 CREATE INDEX IF NOT EXISTS idx_rides_strava_account_id ON rides(strava_account_id);
 CREATE INDEX IF NOT EXISTS idx_sync_jobs_user_id ON sync_jobs(user_id);
