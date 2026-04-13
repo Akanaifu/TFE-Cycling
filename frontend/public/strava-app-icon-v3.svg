@@ -1,0 +1,21 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="192" fill="#FFFFFF"/>
+
+  <!-- Outer wheel ring -->
+  <circle cx="512" cy="512" r="300" stroke="#0F172A" stroke-width="56"/>
+
+  <!-- Inner wheel hint -->
+  <circle cx="512" cy="512" r="176" stroke="#CBD5E1" stroke-width="24"/>
+
+  <!-- ECG-like line crossing the wheel -->
+  <path
+    d="M178 534 H360 L430 430 L500 620 L572 470 L632 534 H846"
+    stroke="#0F172A"
+    stroke-width="46"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Accent pulse point -->
+  <circle cx="572" cy="470" r="22" fill="#2563EB"/>
+</svg>

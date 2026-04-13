@@ -365,7 +365,7 @@ def get_athlete_activities(
     """
     params: dict[str, Any] = {
         "page": 1,
-        "per_page": limit,
+        "per_page": limit + 1,
     }
     if before is not None:
         params["before"] = before
