@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pandas
+numpy
+scikit-learn
+scipy
+psycopg[binary]
+cryptography
+bcrypt
+PyJWT
