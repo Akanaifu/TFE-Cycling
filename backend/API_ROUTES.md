@@ -8,7 +8,7 @@ This backend provides REST endpoints for running HR/power prediction models on c
 
 Paths in requests can be:
 
-- **Relative**: Resolved from the backend directory. Example: `../../notebook/rides/cyclist9`
+- **Relative**: Resolved from the backend directory. Example: `../DB/rides/cyclist9`
 - **Absolute**: Full filesystem path
 
 ## Routes
@@ -46,7 +46,7 @@ List all rides available in a directory.
 **Example Request:**
 
 ```
-GET /rides/list?dir_path=../../notebook/rides/cyclist9
+GET /rides/list?dir_path=../DB/rides/cyclist9
 ```
 
 **Response:**
@@ -54,7 +54,7 @@ GET /rides/list?dir_path=../../notebook/rides/cyclist9
 ```json
 {
   "ok": true,
-  "dir_path": "../../notebook/rides/cyclist9",
+  "dir_path": "../DB/rides/cyclist9",
   "n_rides": 5,
   "rides": [
     {
@@ -80,7 +80,7 @@ Execute the full ML pipeline and return rides with predictions.
 
 ```json
 {
-  "dir_path": "../../notebook/rides/cyclist9",
+  "dir_path": "../DB/rides/cyclist9",
   "selected_models_compute": ["pred_arx_selected"],
   "prev_ride": 1,
   "nan_ratio": 1.0,
@@ -135,7 +135,7 @@ Execute analysis and get summary statistics (RMSE metrics, data summaries).
 
 ```json
 {
-  "dir_path": "../../notebook/rides/cyclist9",
+  "dir_path": "../DB/rides/cyclist9",
   "selected_models_plot": ["pred_arx_selected"],
   "selected_models_stats": ["pred_arx_selected"],
   "show_rmse_table": true,
@@ -178,7 +178,7 @@ Test if a PKL file is readable (GET variant).
 **Example Request:**
 
 ```
-GET /pkl/test-read?file_path=../../notebook/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl
+GET /pkl/test-read?file_path=../DB/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl
 ```
 
 **Response:**
@@ -201,7 +201,7 @@ Test if a PKL file is readable (POST variant).
 
 ```json
 {
-  "file_path": "../../notebook/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl"
+  "file_path": "../DB/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl"
 }
 ```
 
@@ -226,7 +226,7 @@ Same as GET variant.
 ### Workflow 1: List available cyclist data
 
 ```bash
-curl -X GET "http://localhost:8000/rides/list?dir_path=../../notebook/rides/cyclist9"
+curl -X GET "http://localhost:8000/rides/list?dir_path=../DB/rides/cyclist9"
 ```
 
 ### Workflow 2: Run full pipeline with predictions
@@ -235,7 +235,7 @@ curl -X GET "http://localhost:8000/rides/list?dir_path=../../notebook/rides/cycl
 curl -X POST "http://localhost:8000/pipeline/run" \
   -H "Content-Type: application/json" \
   -d '{
-    "dir_path": "../../notebook/rides/cyclist9",
+    "dir_path": "../DB/rides/cyclist9",
     "selected_models_compute": ["pred_arx_selected"],
     "selected_train_ride": 1
   }'
@@ -244,7 +244,7 @@ curl -X POST "http://localhost:8000/pipeline/run" \
 ### Workflow 3: Test PKL file readability
 
 ```bash
-curl -X GET "http://localhost:8000/pkl/test-read?file_path=../../notebook/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl"
+curl -X GET "http://localhost:8000/pkl/test-read?file_path=../DB/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl"
 ```
 
 ### Workflow 4: Get RMSE metrics
@@ -253,7 +253,7 @@ curl -X GET "http://localhost:8000/pkl/test-read?file_path=../../notebook/rides/
 curl -X POST "http://localhost:8000/analysis/run" \
   -H "Content-Type: application/json" \
   -d '{
-    "dir_path": "../../notebook/rides/cyclist9",
+    "dir_path": "../DB/rides/cyclist9",
     "selected_models_stats": ["pred_arx_selected"],
     "selected_train_ride": 1
   }'

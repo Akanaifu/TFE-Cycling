@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import {
+  commonPipelineStyles,
+  stravaPageStyles,
+} from "../components/pipelineStyles";
 
 type StravaStatus = {
   configured: boolean;
@@ -10,15 +15,24 @@ type StravaStatus = {
   has_redirect_uri: boolean;
   redirect_uri: string;
   scopes: string;
-  tokens_file: string;
+  connected?: boolean;
+  athlete_id?: number | null;
+  expires_at?: string | null;
 };
 
 type ExchangeResult = {
   saved: boolean;
-  tokens_file: string;
+  storage?: string;
   token_type: string;
   expires_at: number | null;
   athlete_id: number | null;
+};
+
+type AuthUser = {
+  id: string;
+  email: string;
+  display_name?: string | null;
+  role: string;
 };
 
 type StravaActivity = {
@@ -35,6 +49,7 @@ type StravaActivity = {
 };
 
 export default function StravaPipelinePage() {
+  const router = useRouter();
   const apiUrl = useMemo(
     () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
     [],
@@ -44,7 +59,7 @@ export default function StravaPipelinePage() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [oauthAuthError, setOauthAuthError] = useState<string | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [oauthCode, setOauthCode] = useState("");
   const [exchangeError, setExchangeError] = useState<string | null>(null);
@@ -54,15 +69,102 @@ export default function StravaPipelinePage() {
   const [loadingExchange, setLoadingExchange] = useState(false);
   const [activities, setActivities] = useState<StravaActivity[]>([]);
   const [activitiesError, setActivitiesError] = useState<string | null>(null);
+  const [activitiesSavedInfo, setActivitiesSavedInfo] = useState<string | null>(
+    null,
+  );
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [selectedActivityLimit, setSelectedActivityLimit] = useState(10);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  const authHeaders = useMemo(() => {
+    if (!authToken) {
+      return {} as Record<string, string>;
+    }
+    return { Authorization: `Bearer ${authToken}` };
+  }, [authToken]);
+
+  const extractOAuthCode = (value: string): string => {
+    const clean = (value || "").trim().replace(/^['\"]|['\"]$/g, "");
+    if (!clean) {
+      return "";
+    }
+
+    const codeFromQuery = (query: string): string => {
+      const params = new URLSearchParams(query);
+      return (params.get("code") || "").trim();
+    };
+
+    if (clean.startsWith("http://") || clean.startsWith("https://")) {
+      try {
+        const url = new URL(clean);
+        return (
+          codeFromQuery(url.search.slice(1)) || codeFromQuery(url.hash.slice(1))
+        );
+      } catch {
+        return "";
+      }
+    }
+
+    if (clean.startsWith("?")) {
+      return codeFromQuery(clean.slice(1));
+    }
+
+    if (clean.includes("code=") && clean.includes("=")) {
+      return codeFromQuery(clean.replace(/^#/, ""));
+    }
+
+    return clean;
+  };
+
+  useEffect(() => {
+    const stored = localStorage.getItem("tfe_access_token");
+    if (!stored) {
+      router.replace("/login?next=/strava");
+      return;
+    }
+    setAuthToken(stored);
+    setAuthChecked(true);
+  }, [router]);
+
+  useEffect(() => {
+    const fetchMe = async () => {
+      if (!authToken) {
+        return;
+      }
+      try {
+        const response = await fetch(`${apiUrl}/auth/me`, {
+          headers: authHeaders,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || `HTTP ${response.status}`);
+        }
+        setAuthUser(payload.user as AuthUser);
+      } catch {
+        localStorage.removeItem("tfe_access_token");
+        setAuthToken(null);
+        setAuthUser(null);
+        router.replace("/login?next=/strava");
+      }
+    };
+
+    fetchMe();
+  }, [apiUrl, authHeaders, authToken, router]);
 
   useEffect(() => {
     const loadStatus = async () => {
+      if (!authToken) {
+        setStatus(null);
+        return;
+      }
       setLoadingStatus(true);
       setStatusError(null);
       try {
-        const response = await fetch(`${apiUrl}/strava/status`);
+        const response = await fetch(`${apiUrl}/strava/status`, {
+          headers: authHeaders,
+        });
         const payload = await response.json();
         if (!response.ok) {
           throw new Error(payload?.detail || `HTTP ${response.status}`);
@@ -76,28 +178,45 @@ export default function StravaPipelinePage() {
     };
 
     loadStatus();
-  }, [apiUrl]);
+  }, [apiUrl, authHeaders, authToken]);
+
+  const handleLogout = () => {
+    localStorage.removeItem("tfe_access_token");
+    setAuthToken(null);
+    setAuthUser(null);
+    setStatus(null);
+    setActivities([]);
+    setExchangeResult(null);
+    router.replace("/login?next=/strava");
+  };
 
   const handleGenerateAuthUrl = async () => {
     setLoadingAuth(true);
-    setAuthError(null);
+    setOauthAuthError(null);
     setAuthUrl(null);
     try {
-      const response = await fetch(`${apiUrl}/strava/auth-url`);
+      const response = await fetch(`${apiUrl}/strava/auth-url`, {
+        headers: authHeaders,
+      });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
       setAuthUrl(payload.auth_url as string);
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Erreur inconnue");
+      setOauthAuthError(err instanceof Error ? err.message : "Erreur inconnue");
     } finally {
       setLoadingAuth(false);
     }
   };
 
   const handleExchangeCode = async () => {
-    const code = oauthCode.trim();
+    if (!authToken) {
+      setExchangeError("Connecte-toi avant d'échanger le code OAuth.");
+      return;
+    }
+
+    const code = extractOAuthCode(oauthCode);
     if (!code) {
       setExchangeError("Le code OAuth est requis.");
       setExchangeResult(null);
@@ -112,6 +231,7 @@ export default function StravaPipelinePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders,
         },
         body: JSON.stringify({ code }),
       });
@@ -124,7 +244,9 @@ export default function StravaPipelinePage() {
       setExchangeResult(payload.result as ExchangeResult);
       setOauthCode("");
 
-      const refreshedStatus = await fetch(`${apiUrl}/strava/status`);
+      const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
+        headers: authHeaders,
+      });
       const refreshedPayload = await refreshedStatus.json();
       if (refreshedStatus.ok) {
         setStatus(refreshedPayload.status as StravaStatus);
@@ -136,19 +258,50 @@ export default function StravaPipelinePage() {
     }
   };
 
+  const handlePasteOAuthCode = async () => {
+    try {
+      const pasted = await navigator.clipboard.readText();
+      const normalized = extractOAuthCode(pasted);
+      if (!normalized) {
+        setExchangeError("Aucun code OAuth detecte dans le presse-papiers.");
+        return;
+      }
+      setOauthCode(normalized);
+      setExchangeError(null);
+    } catch {
+      setExchangeError("Impossible de lire le presse-papiers.");
+    }
+  };
+
   const handleFetchActivities = async () => {
+    if (!authToken) {
+      setActivitiesError("Connecte-toi avant de charger les sorties.");
+      return;
+    }
+
     setLoadingActivities(true);
     setActivitiesError(null);
+    setActivitiesSavedInfo(null);
     setActivities([]);
     try {
       const response = await fetch(
         `${apiUrl}/strava/activities?limit=${selectedActivityLimit}`,
+        {
+          headers: authHeaders,
+        },
       );
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
       setActivities((payload.activities || []) as StravaActivity[]);
+      const writtenCount = Number(payload.written_count || 0);
+      const createdCount = Number(payload.created_count || 0);
+      const updatedCount = Number(payload.updated_count || 0);
+      const failedCount = Number(payload.failed_count || 0);
+      setActivitiesSavedInfo(
+        `PKL ecrits: ${writtenCount} (${createdCount} nouveaux, ${updatedCount} mis a jour, ${failedCount} echec(s)).`,
+      );
     } catch (err) {
       setActivitiesError(
         err instanceof Error ? err.message : "Erreur inconnue",
@@ -158,252 +311,290 @@ export default function StravaPipelinePage() {
     }
   };
 
-  const hasTokens = exchangeResult?.saved || status?.configured;
+  const hasTokens = exchangeResult?.saved || status?.connected;
+
+  if (!authChecked || !authToken) {
+    return (
+      <div className={commonPipelineStyles.pageContainer}>
+        <section className={commonPipelineStyles.card}>
+          <h2 className={commonPipelineStyles.sectionTitleNoMargin}>
+            Verification de session...
+          </h2>
+          <p className={`mt-2 ${commonPipelineStyles.bodyText}`}>
+            Redirection vers la page de connexion.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100 py-10">
-      <div className="container mx-auto max-w-6xl px-4">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">
-              Pipeline de connexion Strava
-            </h1>
-            <p className="mt-2 text-slate-700">
-              Configure les credentials, connecte le compte, synchronise les
-              activites, puis lance le pipeline de prediction.
-            </p>
-          </div>
+    <div className={commonPipelineStyles.pageContainer}>
+      <div>
+        <h1 className={commonPipelineStyles.pageTitle}>
+          Pipeline de connexion Strava
+        </h1>
+        <p className={commonPipelineStyles.pageSubtitle}>
+          Configure les credentials, connecte le compte strava, synchronise les
+          activites, puis lance le pipeline de prediction.
+        </p>
+        <div className={commonPipelineStyles.redirectButtonContainer}>
           <Link
-            href="/"
-            className="rounded-md border-2 border-slate-500 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+            href="/pipeline"
+            className={commonPipelineStyles.redirectButtonSecondary}
           >
             Retour au dashboard
           </Link>
         </div>
+      </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm">
-            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
-              Etape 1
-            </p>
-            <h2 className="text-lg font-bold text-slate-900">
-              Connexion OAuth
-            </h2>
-            <p className="mt-2 text-sm text-slate-700">
-              Verifier la configuration puis obtenir l&apos;URL
-              d&apos;autorisation Strava.
-            </p>
-            <div className="mt-4 rounded-md border border-slate-300 bg-slate-50 p-3 text-xs text-slate-800">
-              {loadingStatus && <p>Verification des variables en cours...</p>}
-              {statusError && (
-                <p className="text-red-700">Erreur: {statusError}</p>
-              )}
-              {status && (
-                <div className="space-y-1">
-                  <p>Configuration: {status.configured ? "OK" : "Incomplet"}</p>
-                  <p>Client ID: {status.has_client_id ? "OK" : "Manquant"}</p>
-                  <p>
-                    Client Secret:{" "}
-                    {status.has_client_secret ? "OK" : "Manquant"}
-                  </p>
-                </div>
-              )}
-            </div>
+      <div className={`${commonPipelineStyles.card} space-y-4`}>
+        <h2 className={commonPipelineStyles.sectionTitleNoMargin}>
+          Authentification
+        </h2>
+        <p className={`mt-2 ${commonPipelineStyles.bodyText}`}>
+          Connecte-toi pour acceder a tes tokens et tes sorties Strava en base
+          de donnees.
+        </p>
+        <div
+          className={`${stravaPageStyles.authBanner} ${commonPipelineStyles.authSuccessBanner}`}
+        >
+          <p>
+            Connecte en tant que {authUser?.display_name || authUser?.email}
+          </p>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className={commonPipelineStyles.buttonDarkCompact}
+          >
+            Se deconnecter
+          </button>
+        </div>
+      </div>
 
-            <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              <p className="mb-3">
-                Genere l&apos;URL OAuth depuis les credentials backend.
+      <div className={commonPipelineStyles.sectionStack}>
+        <section className={`${commonPipelineStyles.card} space-y-4`}>
+          <h2 className={commonPipelineStyles.sectionTitle}>
+            1. Connexion OAuth
+          </h2>
+          <p className={`mt-2 ${commonPipelineStyles.bodyText}`}>
+            Verifier la configuration puis obtenir l&apos;URL
+            d&apos;autorisation Strava.
+          </p>
+          <div className={stravaPageStyles.statusPanel}>
+            {loadingStatus && <p>Verification des variables en cours...</p>}
+            {statusError && (
+              <p className="text-red-700">Erreur: {statusError}</p>
+            )}
+            {status && (
+              <div className="space-y-1">
+                <p>Configuration: {status.configured ? "OK" : "Incomplet"}</p>
+                <p>Client ID: {status.has_client_id ? "OK" : "Manquant"}</p>
+                <p>
+                  Client Secret: {status.has_client_secret ? "OK" : "Manquant"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className={stravaPageStyles.oauthPanel}>
+            <p className="mb-3">
+              Genere l&apos;URL OAuth depuis les credentials backend.
+            </p>
+            <button
+              type="button"
+              onClick={handleGenerateAuthUrl}
+              disabled={loadingAuth}
+              className={stravaPageStyles.actionButton}
+            >
+              {loadingAuth ? "Generation..." : "Generer URL OAuth"}
+            </button>
+            {oauthAuthError && (
+              <p className={stravaPageStyles.inlineError}>
+                Erreur: {oauthAuthError}
               </p>
-              <button
-                type="button"
-                onClick={handleGenerateAuthUrl}
-                disabled={loadingAuth}
-                className="rounded-md bg-amber-600 px-3 py-2 font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {loadingAuth ? "Generation..." : "Generer URL OAuth"}
-              </button>
-              {authError && (
-                <p className="mt-2 text-red-700">Erreur: {authError}</p>
-              )}
-              {authUrl && (
-                <div className="mt-2 space-y-2">
-                  <p className="break-all text-amber-950">{authUrl}</p>
-                  <a
-                    href={authUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-block rounded-md bg-slate-900 px-3 py-2 font-semibold text-white hover:bg-slate-800"
-                  >
-                    Ouvrir Strava
-                  </a>
-                </div>
-              )}
-            </div>
-          </section>
+            )}
+            {authUrl && (
+              <div className="mt-2 space-y-2">
+                <p className="break-all text-blue-950">{authUrl}</p>
+                <a
+                  href={authUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={stravaPageStyles.openLink}
+                >
+                  Ouvrir Strava
+                </a>
+              </div>
+            )}
+          </div>
+        </section>
 
-          <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm">
-            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
-              Etape 2
-            </p>
-            <h2 className="text-lg font-bold text-slate-900">
-              Echange de code
-            </h2>
-            <p className="mt-2 text-sm text-slate-700">
-              Colle le parametre <span className="font-mono">code</span> de
-              l&apos;URL de retour Strava puis echange-le contre les tokens.
-            </p>
-            <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              <input
-                type="text"
-                value={oauthCode}
-                onChange={(e) => setOauthCode(e.target.value)}
-                placeholder="Ex: 9e2b4c..."
-                className="w-full rounded-md border border-amber-400 bg-white px-3 py-2 text-amber-950 outline-none focus:ring-2 focus:ring-amber-500"
-              />
+        <section className={`${commonPipelineStyles.card} space-y-4`}>
+          <h2 className={commonPipelineStyles.sectionTitle}>
+            2. Echange de code
+          </h2>
+          <p className={`mt-2 ${commonPipelineStyles.bodyText}`}>
+            Colle le parametre <span className="font-mono">code</span> de
+            l&apos;URL de retour Strava puis echange-le contre les tokens.
+          </p>
+          <div className={stravaPageStyles.oauthPanel}>
+            <input
+              type="text"
+              value={oauthCode}
+              onChange={(e) => setOauthCode(e.target.value)}
+              placeholder="Code OAuth ou URL complete de retour"
+              className={stravaPageStyles.oauthInput}
+            />
+            <div className={stravaPageStyles.exchangeActions}>
               <button
                 type="button"
                 onClick={handleExchangeCode}
                 disabled={loadingExchange}
-                className="mt-3 rounded-md bg-slate-900 px-3 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                className={stravaPageStyles.exchangeButton}
               >
                 {loadingExchange ? "Echange en cours..." : "Echanger le code"}
               </button>
-
-              {exchangeError && (
-                <p className="mt-2 text-red-700">Erreur: {exchangeError}</p>
-              )}
-
-              {exchangeResult && (
-                <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">
-                  <p className="font-semibold">Tokens enregistres.</p>
-                  <p className="break-all">
-                    Fichier: {exchangeResult.tokens_file}
-                  </p>
-                  <p>Type: {exchangeResult.token_type}</p>
-                  {exchangeResult.athlete_id !== null && (
-                    <p>Athlete ID: {exchangeResult.athlete_id}</p>
-                  )}
-                  {exchangeResult.expires_at !== null && (
-                    <p>Expires At: {exchangeResult.expires_at}</p>
-                  )}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={handlePasteOAuthCode}
+                disabled={loadingExchange}
+                className={stravaPageStyles.pasteButton}
+              >
+                Coller le code
+              </button>
             </div>
-          </section>
 
-          <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm">
-            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
-              Etape 3
-            </p>
-            <h2 className="text-lg font-bold text-slate-900">
-              Extraction + Sync
-            </h2>
-            <p className="mt-2 text-sm text-slate-700">
-              Recupere les dernieres sorties velos de ton compte Strava, puis
-              synchronise-les vers des fichiers PKL.
-            </p>
-            <div className="mt-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-900">
-              {!hasTokens ? (
-                <p className="text-amber-900">
-                  Complete les etapes 1 et 2 pour activer l&apos;extraction.
-                </p>
-              ) : (
-                <>
-                  <div className="mb-3 flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="block text-xs font-semibold text-slate-700">
-                        Nombre de sorties a recuperer:
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="100"
-                        value={selectedActivityLimit}
-                        onChange={(e) =>
-                          setSelectedActivityLimit(
-                            Math.max(1, parseInt(e.target.value) || 10),
-                          )
-                        }
-                        className="mt-1 w-full rounded-md border border-emerald-400 bg-white px-3 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleFetchActivities}
-                      disabled={loadingActivities}
-                      className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                    >
-                      {loadingActivities ? "Extraction..." : "Extraire sorties"}
-                    </button>
-                  </div>
+            {exchangeError && (
+              <p className={stravaPageStyles.inlineError}>
+                Erreur: {exchangeError}
+              </p>
+            )}
 
-                  {activitiesError && (
-                    <p className="mt-2 text-red-700">
-                      Erreur: {activitiesError}
-                    </p>
-                  )}
+            {exchangeResult && (
+              <div className={stravaPageStyles.exchangeSuccess}>
+                <p className="font-semibold">Tokens enregistres.</p>
+                {exchangeResult.storage && (
+                  <p>Stockage: {exchangeResult.storage}</p>
+                )}
+                <p>Type: {exchangeResult.token_type}</p>
+                {exchangeResult.athlete_id !== null && (
+                  <p>Athlete ID: {exchangeResult.athlete_id}</p>
+                )}
+                {exchangeResult.expires_at !== null && (
+                  <p>Expires At: {exchangeResult.expires_at}</p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
 
-                  {activities.length > 0 && (
-                    <div className="mt-3 space-y-2 rounded-md border border-emerald-200 bg-emerald-100 p-3">
-                      <p className="font-semibold text-emerald-900">
-                        {activities.length} sortie(s) trouvee(s):
-                      </p>
-                      <div className="space-y-2">
-                        {activities.map((activity, idx) => {
-                          const distanceKm = (activity.distance || 0) / 1000;
-                          const movingMinutes = Math.round(
-                            (activity.moving_time || 0) / 60,
-                          );
-                          return (
-                            <div
-                              key={activity.id || idx}
-                              className="rounded border border-emerald-200 bg-white p-2 text-xs text-slate-700"
-                            >
-                              <p className="font-semibold">{activity.name}</p>
-                              <div className="mt-1 space-y-1 text-slate-600">
-                                <p>
-                                  {distanceKm.toFixed(1)} km • {movingMinutes}{" "}
-                                  min
-                                </p>
-                                {activity.average_heartrate !== null && (
-                                  <p>
-                                    HR: {activity.average_heartrate.toFixed(0)}{" "}
-                                    bpm
-                                  </p>
-                                )}
-                                {activity.average_watts !== null && (
-                                  <p>
-                                    W: {activity.average_watts.toFixed(0)} W
-                                  </p>
-                                )}
-                                {activity.start_date && (
-                                  <p>
-                                    {new Date(
-                                      activity.start_date,
-                                    ).toLocaleString("fr-FR")}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <section className="mt-6 rounded-lg border border-slate-300 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">
-            Prochaine integration
+        <section className={`${commonPipelineStyles.card} space-y-4`}>
+          <h2 className={commonPipelineStyles.sectionTitle}>
+            3. Extraction + Sync
           </h2>
-          <p className="mt-2 text-sm text-slate-700">
-            Une fois les sorties extraites, elles seront automatiquement
-            synchronisees en PKL et prete pour le pipeline de prediction.
+          <p className={`mt-2 ${commonPipelineStyles.bodyText}`}>
+            Recupere les dernieres sorties velos de ton compte Strava, puis
+            synchronise-les vers des fichiers PKL.
           </p>
+          <div className={stravaPageStyles.extractionPanel}>
+            {!hasTokens ? (
+              <p className={stravaPageStyles.activationWarning}>
+                Complete les etapes 1 et 2 pour activer l&apos;extraction.
+              </p>
+            ) : (
+              <>
+                <div className={stravaPageStyles.extractionControls}>
+                  <div className={stravaPageStyles.extractionInputWrap}>
+                    <label
+                      htmlFor="activity-limit"
+                      className={stravaPageStyles.extractionInputLabel}
+                    >
+                      Nombre de sorties a recuperer:
+                    </label>
+                    <input
+                      id="activity-limit"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={selectedActivityLimit}
+                      onChange={(e) =>
+                        setSelectedActivityLimit(
+                          Math.max(1, parseInt(e.target.value) || 10),
+                        )
+                      }
+                      className={stravaPageStyles.extractionInput}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleFetchActivities}
+                    disabled={loadingActivities}
+                    className={stravaPageStyles.extractionButton}
+                  >
+                    {loadingActivities ? "Extraction..." : "Extraire sorties"}
+                  </button>
+                </div>
+
+                {activitiesError && (
+                  <p className={stravaPageStyles.inlineError}>
+                    Erreur: {activitiesError}
+                  </p>
+                )}
+
+                {activitiesSavedInfo && (
+                  <p className="mt-2 text-sm text-emerald-900">
+                    {activitiesSavedInfo}
+                  </p>
+                )}
+
+                {activities.length > 0 && (
+                  <div className={stravaPageStyles.activityListPanel}>
+                    <p className={stravaPageStyles.activityListTitle}>
+                      {activities.length} sortie(s) trouvee(s):
+                    </p>
+                    <div className="space-y-2">
+                      {activities.map((activity, idx) => {
+                        const distanceKm = (activity.distance || 0) / 1000;
+                        const movingMinutes = Math.round(
+                          (activity.moving_time || 0) / 60,
+                        );
+                        return (
+                          <div
+                            key={activity.id || idx}
+                            className={stravaPageStyles.activityCard}
+                          >
+                            <p className="font-semibold">{activity.name}</p>
+                            <div className={stravaPageStyles.activityMeta}>
+                              <p>
+                                {distanceKm.toFixed(1)} km • {movingMinutes} min
+                              </p>
+                              {activity.average_heartrate !== null && (
+                                <p>
+                                  HR: {activity.average_heartrate.toFixed(0)}{" "}
+                                  bpm
+                                </p>
+                              )}
+                              {activity.average_watts !== null && (
+                                <p>W: {activity.average_watts.toFixed(0)} W</p>
+                              )}
+                              {activity.start_date && (
+                                <p>
+                                  {new Date(activity.start_date).toLocaleString(
+                                    "fr-FR",
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </section>
       </div>
     </div>

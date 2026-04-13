@@ -43,7 +43,7 @@ Le frontend sera disponible sur `http://localhost:3000`
 ### Configuration
 
 1. **Chemin du répertoire**: Entrez le chemin vers le dossier contenant les PKL
-   - Exemple: `../../notebook/rides/cyclist9`
+   - Exemple: `../DB/rides/cyclist9`
    - Les chemins relatifs sont résolus depuis le répertoire backend
 
 2. **Ride d'entraînement**: Index 1-based de la ride utilisée pour l'entraînement

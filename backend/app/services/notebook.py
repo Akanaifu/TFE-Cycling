@@ -140,7 +140,7 @@ def list_cyclists() -> list[str]:
     Returns:
         List of cyclist names sorted numerically (cyclist0, cyclist1, etc.)
     """
-    rides_dir = _resolve_data_path("../../notebook/rides")
+    rides_dir = _resolve_data_path("../DB/rides")
     if not rides_dir.exists():
         raise FileNotFoundError(f"Rides directory not found: {rides_dir}")
 
@@ -171,7 +171,7 @@ def get_single_ride(cyclist: str, ride_index: int) -> dict[str, Any]:
     if ride_index < 1:
         raise ValueError("ride_index must be >= 1")
 
-    rides_dir = _resolve_data_path(f"../../notebook/rides/{cyclist}")
+    rides_dir = _resolve_data_path(f"../DB/rides/{cyclist}")
     if not rides_dir.exists() or not rides_dir.is_dir():
         raise FileNotFoundError(f"Cyclist directory not found: {rides_dir}")
 
@@ -234,7 +234,7 @@ def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
     Args:
         dir_path: Directory path (relative from backend or absolute).
                  Relative paths resolve from backend root directory.
-                 Example: "../../notebook/rides/cyclist9"
+                 Example: "../DB/rides/cyclist9"
     """
     resolved_dir = _resolve_data_path(dir_path)
     sorties = list_files(resolved_dir)

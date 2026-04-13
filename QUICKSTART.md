@@ -88,7 +88,7 @@ Le frontend sera disponible sur `http://localhost:3000`
    ```
 
 3. **Configurer et exécuter**
-   - Entrez le chemin du répertoire rides (ex: `../../notebook/rides/cyclist9`)
+   - Entrez le chemin du répertoire rides (ex: `../DB/rides/cyclist9`)
    - Sélectionnez les modèles à calculer
    - Cliquez sur "Exécuter le pipeline"
 
@@ -108,7 +108,7 @@ notebook/rides/
 Pour accéder aux rides d'un cyclist depuis le backend, utilisez un chemin relatif:
 
 ```
-../../notebook/rides/cyclist9
+../DB/rides/cyclist9
 ```
 
 ## Modèles disponibles
@@ -128,7 +128,7 @@ Pour accéder aux rides d'un cyclist depuis le backend, utilisez un chemin relat
 curl -X POST "http://localhost:8000/pipeline/run" \
   -H "Content-Type: application/json" \
   -d '{
-    "dir_path": "../../notebook/rides/cyclist9",
+    "dir_path": "../DB/rides/cyclist9",
     "selected_models_compute": ["pred_arx_selected"],
     "prev_ride": 1,
     "nan_ratio": 1.0,
@@ -164,13 +164,13 @@ curl -X POST "http://localhost:8000/pipeline/run" \
 ### `/rides/list` - Lister les rides
 
 ```bash
-GET http://localhost:8000/rides/list?dir_path=../../notebook/rides/cyclist9
+GET http://localhost:8000/rides/list?dir_path=../DB/rides/cyclist9
 ```
 
 ### `/pkl/test-read` - Tester la lecture d'un PKL
 
 ```bash
-GET http://localhost:8000/pkl/test-read?file_path=../../notebook/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl
+GET http://localhost:8000/pkl/test-read?file_path=../DB/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl
 ```
 
 ### `/analysis/run` - Analyse complète (avec statistiques RMSE)

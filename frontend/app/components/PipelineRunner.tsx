@@ -1,16 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import PredictionChart from "./PredictionChart";
 import RideSelector from "./RideSelector";
 import CyclistSelector from "./CyclistSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
+import { commonPipelineStyles, predictionPageStyles } from "./pipelineStyles";
+
+interface AuthUser {
+  id: string;
+  email: string;
+  display_name?: string | null;
+  role: string;
+}
 
 interface RideData {
   datetime: string;
   n_points: number;
   columns: string[];
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
 }
 
 interface PipelineResponse {
@@ -22,7 +30,12 @@ interface PipelineResponse {
 }
 
 export default function PipelineRunner() {
-  const [selectedCyclist, setSelectedCyclist] = useState("cyclist9");
+  const apiUrl = useMemo(
+    () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+    [],
+  );
+
+  const [selectedCyclist, setSelectedCyclist] = useState("");
   const [selectedModels, setSelectedModels] = useState<string[]>([
     "pred_arx_selected",
   ]);
@@ -31,18 +44,104 @@ export default function PipelineRunner() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PipelineResponse | null>(null);
   const [selectedRideIndex, setSelectedRideIndex] = useState(0);
+  const [email, setEmail] = useState("shapunaifu_athlete@strava.local");
+  const [password, setPassword] = useState("");
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [loadingLogin, setLoadingLogin] = useState(false);
+  const [maxTrainRideIndex, setMaxTrainRideIndex] = useState(1);
+
+  const authHeaders = useMemo(() => {
+    if (!authToken) {
+      return {} as Record<string, string>;
+    }
+    return { Authorization: `Bearer ${authToken}` };
+  }, [authToken]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("tfe_access_token");
+    if (stored) {
+      setAuthToken(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    const fetchMe = async () => {
+      if (!authToken) {
+        setAuthUser(null);
+        return;
+      }
+      try {
+        const response = await fetch(`${apiUrl}/auth/me`, {
+          headers: authHeaders,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || `HTTP ${response.status}`);
+        }
+        setAuthUser(payload.user as AuthUser);
+      } catch {
+        localStorage.removeItem("tfe_access_token");
+        setAuthToken(null);
+        setAuthUser(null);
+      }
+    };
+
+    fetchMe();
+  }, [apiUrl, authHeaders, authToken]);
+
+  const handleLogin = async () => {
+    setLoadingLogin(true);
+    setAuthError(null);
+    try {
+      const response = await fetch(`${apiUrl}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || `HTTP ${response.status}`);
+      }
+
+      const token = payload.access_token as string;
+      setAuthToken(token);
+      localStorage.setItem("tfe_access_token", token);
+      setAuthUser(payload.user as AuthUser);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setLoadingLogin(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("tfe_access_token");
+    setAuthToken(null);
+    setAuthUser(null);
+    setResult(null);
+    setError(null);
+  };
 
   const handleRun = async () => {
+    if (!authToken) {
+      setError("Connecte-toi pour executer le pipeline.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const dirPath = `../../notebook/rides/${selectedCyclist}`;
+      const dirPath = `../DB/rides/${selectedCyclist}`;
 
       const response = await fetch(`${apiUrl}/pipeline/run`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders,
         },
         body: JSON.stringify({
           dir_path: dirPath,
@@ -85,68 +184,183 @@ export default function PipelineRunner() {
   };
 
   const currentRide = result?.rides[selectedRideIndex];
+  const isAdmin = authUser?.role === "admin";
+  const showCyclistSelection = Boolean(authToken) && isAdmin;
+  const trainingSectionIndex = showCyclistSelection ? 2 : 1;
+  const configSectionIndex = showCyclistSelection ? 3 : 2;
+
+  const handleTrainRideChange = (value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+      return;
+    }
+    const clamped = Math.min(Math.max(parsed, 1), maxTrainRideIndex);
+    setSelectedTrainRide(clamped);
+  };
+
+  useEffect(() => {
+    if (selectedTrainRide < 1) {
+      setSelectedTrainRide(1);
+      return;
+    }
+    if (selectedTrainRide > maxTrainRideIndex) {
+      setSelectedTrainRide(maxTrainRideIndex);
+    }
+  }, [maxTrainRideIndex, selectedTrainRide]);
 
   return (
-    <div className="w-full max-w-7xl mx-auto p-6 space-y-6">
+    <div className={commonPipelineStyles.pageContainer}>
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className={commonPipelineStyles.pageTitle}>
           Pipeline de Prédictions HR
         </h1>
-        <p className="text-gray-600 mt-2">
-          Sélectionnez un cycliste, configurez le modèle d'entrainement, puis
-          lancez l'analyse prédictive
+        <p className={commonPipelineStyles.pageSubtitle}>
+          Configurez le modèle d&apos;entrainement puis lancez l&apos;analyse
+          prédictive
         </p>
       </div>
 
-      {/* Section 1: Cyclist Selection */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">
-          1. Sélectionner le cycliste
+      <div className={`${commonPipelineStyles.card} space-y-4`}>
+        <h2 className={commonPipelineStyles.sectionTitleNoMargin}>
+          Authentification
         </h2>
-        <CyclistSelector
-          selectedCyclist={selectedCyclist}
-          onSelectCyclist={setSelectedCyclist}
-          fromRideIndex={selectedTrainRide}
-          onRideIndexChange={setSelectedTrainRide}
-        />
+        <p className={commonPipelineStyles.bodyText}>
+          Connecte-toi pour charger et analyser tes rides (routes protegees par
+          JWT).
+        </p>
+
+        {!authToken ? (
+          <div className={predictionPageStyles.authGrid}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              className={commonPipelineStyles.textInput}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Mot de passe"
+              className={commonPipelineStyles.textInput}
+            />
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={loadingLogin}
+              className={commonPipelineStyles.buttonDark}
+            >
+              {loadingLogin ? "Connexion..." : "Se connecter"}
+            </button>
+          </div>
+        ) : (
+          <div className={commonPipelineStyles.authSuccessBanner}>
+            <p>
+              Connecte en tant que{" "}
+              {authUser?.display_name || authUser?.email || email}
+            </p>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className={commonPipelineStyles.buttonDarkCompact}
+            >
+              Se deconnecter
+            </button>
+          </div>
+        )}
+
+        {authError && (
+          <p className={commonPipelineStyles.errorText}>Erreur: {authError}</p>
+        )}
       </div>
 
+      {showCyclistSelection && (
+        <div className={commonPipelineStyles.card}>
+          <h2 className={commonPipelineStyles.sectionTitle}>
+            1. Sélectionner le cycliste
+          </h2>
+          <CyclistSelector
+            selectedCyclist={selectedCyclist}
+            onSelectCyclist={setSelectedCyclist}
+            authToken={authToken}
+            isAdmin
+            onMaxRideIndexChange={setMaxTrainRideIndex}
+          />
+        </div>
+      )}
+
       {/* Section 2: Training Ride Preview */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">
-          2. Ride d'entraînement
+      <div className={commonPipelineStyles.card}>
+        <h2 className={commonPipelineStyles.sectionTitle}>
+          {trainingSectionIndex}. Ride d&apos;entraînement
         </h2>
+        {!showCyclistSelection && (
+          <div className={commonPipelineStyles.marginBottom4}>
+            <CyclistSelector
+              selectedCyclist={selectedCyclist}
+              onSelectCyclist={setSelectedCyclist}
+              authToken={authToken}
+              isAdmin={false}
+              onMaxRideIndexChange={setMaxTrainRideIndex}
+            />
+          </div>
+        )}
+        <div className={commonPipelineStyles.marginBottom4}>
+          <label
+            htmlFor="training-ride-index"
+            className={commonPipelineStyles.formLabel}
+          >
+            Ride d&apos;entraînement (index, 1-based)
+          </label>
+          <input
+            id="training-ride-index"
+            type="number"
+            min="1"
+            max={maxTrainRideIndex}
+            value={selectedTrainRide}
+            onChange={(e) => handleTrainRideChange(e.target.value)}
+            className={`${commonPipelineStyles.emphasizedInput} ${predictionPageStyles.trainRideInput}`}
+          />
+          <p className={`${commonPipelineStyles.mutedText} mt-1`}>
+            Cette ride sera utilisée comme modèle pour les prédictions (1 a{" "}
+            {maxTrainRideIndex})
+          </p>
+        </div>
         <TrainingRidePreview
           cyclist={selectedCyclist}
           rideIndex={selectedTrainRide}
+          authToken={authToken}
         />
       </div>
 
       {/* Section 3: Model Configuration & Run */}
-      <div className="bg-white rounded-lg shadow p-6 space-y-4">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">
-          3. Configuration et exécution
+      <div className={`${commonPipelineStyles.card} space-y-4`}>
+        <h2 className={commonPipelineStyles.sectionTitle}>
+          {configSectionIndex}. Configuration et exécution
         </h2>
 
         {/* Model Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">
+          <label className={predictionPageStyles.modelLabel}>
             Modèles à calculer
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={predictionPageStyles.modelGrid}>
             {availableModels.map((model) => (
               <label
                 key={model.id}
-                className="flex items-center space-x-2 cursor-pointer"
+                className={predictionPageStyles.modelOption}
               >
                 <input
                   type="checkbox"
                   checked={selectedModels.includes(model.id)}
                   onChange={() => toggleModel(model.id)}
-                  className="w-4 h-4 text-blue-600"
+                  className={predictionPageStyles.modelCheckbox}
                 />
-                <span className="text-sm text-gray-700">{model.label}</span>
+                <span className={predictionPageStyles.modelOptionText}>
+                  {model.label}
+                </span>
               </label>
             ))}
           </div>
@@ -156,44 +370,50 @@ export default function PipelineRunner() {
         <button
           onClick={handleRun}
           disabled={loading || selectedModels.length === 0}
-          className="w-full bg-blue-600 text-white py-3 px-4 rounded-md font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          className={predictionPageStyles.runButton}
         >
           {loading ? "Exécution en cours..." : "Exécuter le pipeline"}
         </button>
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <p className="text-red-800 font-medium">Erreur:</p>
-            <p className="text-red-700 text-sm mt-1">{error}</p>
+          <div className={predictionPageStyles.errorPanel}>
+            <p className={predictionPageStyles.errorPanelTitle}>Erreur:</p>
+            <p className={predictionPageStyles.errorPanelBody}>{error}</p>
           </div>
         )}
       </div>
 
       {/* Results Panel */}
       {result && (
-        <div className="space-y-6">
+        <div className={commonPipelineStyles.sectionStack}>
           {/* Results Summary */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Résultats de l'analyse
+          <div className={commonPipelineStyles.card}>
+            <h2 className={commonPipelineStyles.sectionTitle}>
+              Résultats de l&apos;analyse
             </h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="p-4 bg-gray-50 rounded">
-                <p className="text-gray-600 text-sm">Nombre de rides</p>
-                <p className="text-2xl font-bold text-gray-900">
+            <div className={predictionPageStyles.summaryGrid}>
+              <div className={predictionPageStyles.summaryCard}>
+                <p className={predictionPageStyles.summaryLabel}>
+                  Nombre de rides
+                </p>
+                <p className={predictionPageStyles.summaryValue}>
                   {result.n_rides}
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded">
-                <p className="text-gray-600 text-sm">Modèles calculés</p>
-                <p className="text-sm font-mono font-semibold">
+              <div className={predictionPageStyles.summaryCard}>
+                <p className={predictionPageStyles.summaryLabel}>
+                  Modèles calculés
+                </p>
+                <p className={predictionPageStyles.summaryValueMono}>
                   {result.models_computed.join(", ")}
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded">
-                <p className="text-gray-600 text-sm">Points par ride</p>
-                <p className="text-2xl font-bold text-gray-900">
+              <div className={predictionPageStyles.summaryCard}>
+                <p className={predictionPageStyles.summaryLabel}>
+                  Points par ride
+                </p>
+                <p className={predictionPageStyles.summaryValue}>
                   {currentRide?.n_points || "-"}
                 </p>
               </div>
@@ -209,7 +429,7 @@ export default function PipelineRunner() {
 
           {/* Charts and Data */}
           {currentRide && (
-            <div className="space-y-6">
+            <div className={commonPipelineStyles.sectionStack}>
               {/* Prediction Chart */}
               <PredictionChart
                 rideData={currentRide}
@@ -217,8 +437,8 @@ export default function PipelineRunner() {
               />
 
               {/* Data Table */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              <div className={commonPipelineStyles.card}>
+                <h3 className={predictionPageStyles.tableSectionTitle}>
                   Données détaillées
                 </h3>
                 <DataTable
@@ -251,15 +471,12 @@ function DataTable({
   const displayedData = rideData.data.filter((_, i) => i % step === 0);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className={predictionPageStyles.tableWrapper}>
+      <table className={predictionPageStyles.table}>
         <thead>
-          <tr className="bg-gray-100 border-b">
+          <tr className={predictionPageStyles.tableHeadRow}>
             {filteredColumns.map((col) => (
-              <th
-                key={col}
-                className="px-4 py-2 text-left font-semibold text-gray-900"
-              >
+              <th key={col} className={predictionPageStyles.tableHeaderCell}>
                 {col}
               </th>
             ))}
@@ -267,22 +484,22 @@ function DataTable({
         </thead>
         <tbody>
           {displayedData.map((row, idx) => (
-            <tr key={idx} className="border-b hover:bg-gray-50">
+            <tr key={idx} className={predictionPageStyles.tableRow}>
               {filteredColumns.map((col) => (
                 <td
                   key={`${idx}-${col}`}
-                  className="px-4 py-2 text-gray-700 font-mono text-xs"
+                  className={predictionPageStyles.tableCell}
                 >
                   {typeof row[col] === "number"
                     ? row[col].toFixed(2)
-                    : row[col]}
+                    : String(row[col] ?? "")}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="text-xs text-gray-500 mt-2">
+      <p className={predictionPageStyles.tableFooter}>
         Affichage de {displayedData.length} points sur {rideData.data.length}
         (tous les {step} points)
       </p>

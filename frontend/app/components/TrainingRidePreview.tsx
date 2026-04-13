@@ -29,11 +29,13 @@ interface TrainingRideRow {
 interface TrainingRidePreviewProps {
   cyclist: string;
   rideIndex: number;
+  authToken: string | null;
 }
 
 export default function TrainingRidePreview({
   cyclist,
   rideIndex,
+  authToken,
 }: TrainingRidePreviewProps) {
   const [rideData, setRideData] = useState<TrainingRideData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,6 +50,12 @@ export default function TrainingRidePreview({
 
   useEffect(() => {
     const fetchRideData = async () => {
+      if (!authToken) {
+        setRideData(null);
+        setError("Connecte-toi pour charger la ride d'entrainement.");
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -55,6 +63,9 @@ export default function TrainingRidePreview({
           process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const response = await fetch(
           `${apiUrl}/rides/training-ride?cyclist=${cyclist}&ride_index=${rideIndex}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+          },
         );
 
         if (!response.ok) {
@@ -74,7 +85,7 @@ export default function TrainingRidePreview({
     };
 
     fetchRideData();
-  }, [cyclist, rideIndex]);
+  }, [authToken, cyclist, rideIndex]);
 
   return (
     <div className="bg-white rounded-lg shadow p-6">

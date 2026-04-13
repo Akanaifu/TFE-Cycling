@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { cyclistSelectorStyles } from "./pipelineStyles";
 
 interface CyclistSelectorProps {
   onSelectCyclist: (cyclist: string) => void;
-  fromRideIndex: number;
-  onRideIndexChange: (index: number) => void;
   selectedCyclist: string;
+  authToken: string | null;
+  isAdmin: boolean;
+  onMaxRideIndexChange?: (max: number) => void;
 }
 
 export default function CyclistSelector({
   onSelectCyclist,
-  fromRideIndex,
-  onRideIndexChange,
   selectedCyclist,
+  authToken,
+  isAdmin,
+  onMaxRideIndexChange,
 }: CyclistSelectorProps) {
   const [cyclists, setCyclists] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,23 +24,38 @@ export default function CyclistSelector({
 
   useEffect(() => {
     const fetchCyclists = async () => {
+      if (!authToken) {
+        setCyclists([]);
+        setError("Connecte-toi pour charger les cyclistes.");
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
         const apiUrl =
           process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-        const response = await fetch(`${apiUrl}/cyclists/list`);
+        const response = await fetch(`${apiUrl}/cyclists/list`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            throw new Error("Session invalide ou expirée.");
+          }
           throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
-        setCyclists(data.cyclists || []);
+        const fetchedCyclists = data.cyclists || [];
+        setCyclists(fetchedCyclists);
 
-        // Select first cyclist by default
-        if (data.cyclists && data.cyclists.length > 0) {
-          onSelectCyclist(data.cyclists[0]);
+        if (fetchedCyclists.length > 0) {
+          if (!selectedCyclist || !fetchedCyclists.includes(selectedCyclist)) {
+            onSelectCyclist(fetchedCyclists[0]);
+          }
+        } else {
+          onSelectCyclist("");
         }
       } catch (err) {
         setError(
@@ -49,60 +67,74 @@ export default function CyclistSelector({
     };
 
     fetchCyclists();
-  }, [onSelectCyclist]);
+  }, [authToken, onSelectCyclist, selectedCyclist]);
+
+  useEffect(() => {
+    const fetchRideCount = async () => {
+      if (!authToken || !selectedCyclist) {
+        return;
+      }
+
+      try {
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const dirPath = `../DB/rides/${selectedCyclist}`;
+        const response = await fetch(
+          `${apiUrl}/rides/list?dir_path=${encodeURIComponent(dirPath)}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const rideCount = Number(data?.n_rides ?? 0);
+        const computedMax = Math.max(
+          1,
+          Number.isFinite(rideCount) ? rideCount : 1,
+        );
+        onMaxRideIndexChange?.(computedMax);
+      } catch {
+        onMaxRideIndexChange?.(1);
+      }
+    };
+
+    fetchRideCount();
+  }, [authToken, onMaxRideIndexChange, selectedCyclist]);
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-4">
-      <h2 className="text-2xl font-bold text-gray-900">Configuration</h2>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Cyclist Selector */}
-        <div>
-          <label className="block text-sm font-semibold text-gray-900 mb-2">
-            Sélectionner un cycliste
-          </label>
-          {loading ? (
-            <div className="text-gray-500 text-sm">Chargement...</div>
-          ) : error ? (
-            <div className="text-red-500 text-sm">{error}</div>
-          ) : (
-            <select
-              value={selectedCyclist}
-              onChange={(e) => onSelectCyclist(e.target.value)}
-              className="w-full px-3 py-2 bg-white text-gray-950 border-2 border-gray-500 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-700"
+    <div className={cyclistSelectorStyles.container}>
+      <label htmlFor="cyclist-select" className={cyclistSelectorStyles.label}>
+        {isAdmin ? "Sélectionner un cycliste" : ""}
+      </label>
+      {loading ? (
+        <div className={cyclistSelectorStyles.loading}>Chargement...</div>
+      ) : error ? (
+        <div className={cyclistSelectorStyles.error}>{error}</div>
+      ) : isAdmin ? (
+        <select
+          id="cyclist-select"
+          value={selectedCyclist}
+          onChange={(e) => onSelectCyclist(e.target.value)}
+          className={cyclistSelectorStyles.select}
+        >
+          {cyclists.map((cyclist) => (
+            <option
+              key={cyclist}
+              value={cyclist}
+              className={cyclistSelectorStyles.option}
             >
-              {cyclists.map((cyclist) => (
-                <option
-                  key={cyclist}
-                  value={cyclist}
-                  className="text-gray-950 bg-white"
-                >
-                  {cyclist.charAt(0).toUpperCase() +
-                    cyclist.slice(1).replace("cyclist", "Cycliste ")}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-
-        {/* Training Ride Index Selector */}
-        <div>
-          <label className="block text-sm font-semibold text-gray-900 mb-2">
-            Ride d&apos;entraînement (index, 1-based)
-          </label>
-          <input
-            type="number"
-            min="1"
-            max="20"
-            value={fromRideIndex}
-            onChange={(e) => onRideIndexChange(parseInt(e.target.value))}
-            className="w-full px-3 py-2 bg-white text-gray-950 border-2 border-gray-500 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-700"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Cette ride sera utilisée comme modèle pour les prédictions
-          </p>
-        </div>
-      </div>
+              {cyclist.charAt(0).toUpperCase() +
+                cyclist.slice(1).replace("cyclist", "Cycliste ")}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className={cyclistSelectorStyles.hiddenPlaceholder}></div>
+      )}
     </div>
   );
 }

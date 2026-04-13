@@ -1,12 +1,10 @@
 "use client";
 
-import React from "react";
-
 interface RideData {
   datetime: string;
   n_points: number;
   columns: string[];
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
 }
 
 export default function PredictionChart({
@@ -20,14 +18,42 @@ export default function PredictionChart({
     return <div className="text-gray-500">Pas de données disponibles</div>;
   }
 
-  // Extract data for plotting
-  const timeData = rideData.data.map((d) => d.t_min || 0);
-  const hrActual = rideData.data.map((d) => d.hr || null);
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
 
-  const minTime = Math.min(...timeData.filter((t) => t !== null));
-  const maxTime = Math.max(...timeData.filter((t) => t !== null));
-  const minHR = Math.min(...hrActual.filter((h) => h !== null));
-  const maxHR = Math.max(...hrActual.filter((h) => h !== null));
+  // Extract data for plotting
+  const timeData = rideData.data.map((d) => toNumberOrNull(d.t_min));
+  const hrActual = rideData.data.map((d) => toNumberOrNull(d.hr));
+  const predictionSeries = models.map((model) =>
+    rideData.data.map((d) => toNumberOrNull(d[model])),
+  );
+
+  const validTimes = timeData.filter((t): t is number => t !== null);
+  const allHRValues = [hrActual, ...predictionSeries]
+    .flat()
+    .filter((h): h is number => h !== null);
+
+  if (validTimes.length === 0 || allHRValues.length === 0) {
+    return <div className="text-gray-500">Pas de données exploitables</div>;
+  }
+
+  const minTime = Math.min(...validTimes);
+  const maxTime = Math.max(...validTimes);
+  const minHRRaw = Math.min(...allHRValues);
+  const maxHRRaw = Math.max(...allHRValues);
+
+  // Keep some visual headroom so peaks are not clipped at chart boundaries.
+  const hrPadding = Math.max(3, (maxHRRaw - minHRRaw) * 0.05);
+  const minHR = minHRRaw - hrPadding;
+  const maxHR = maxHRRaw + hrPadding;
 
   // Chart dimensions
   const chartWidth = 800;
@@ -37,10 +63,13 @@ export default function PredictionChart({
   const innerHeight = chartHeight - padding * 2;
 
   // Scale functions
+  const timeRange = Math.max(1e-9, maxTime - minTime);
+  const hrRange = Math.max(1e-9, maxHR - minHR);
+
   const scaleX = (value: number) =>
-    padding + ((value - minTime) / (maxTime - minTime)) * innerWidth;
+    padding + ((value - minTime) / timeRange) * innerWidth;
   const scaleY = (value: number) =>
-    padding + innerHeight - ((value - minHR) / (maxHR - minHR)) * innerHeight;
+    padding + innerHeight - ((value - minHR) / hrRange) * innerHeight;
 
   // Colors for different models
   const colors: Record<string, string> = {
@@ -57,9 +86,11 @@ export default function PredictionChart({
     let isDrawing = false;
 
     for (let i = 0; i < values.length; i++) {
-      if (values[i] !== null) {
-        const x = scaleX(timeData[i]);
-        const y = scaleY(values[i]);
+      const t = timeData[i];
+      const v = values[i];
+      if (t !== null && v !== null) {
+        const x = scaleX(t);
+        const y = scaleY(v);
 
         if (!isDrawing) {
           path += `M ${x} ${y}`;
@@ -82,6 +113,18 @@ export default function PredictionChart({
 
       <div className="overflow-x-auto">
         <svg width={chartWidth} height={chartHeight} className="bg-white">
+          <title>Frequence cardiaque: predictions vs realite</title>
+          <defs>
+            <clipPath id="chart-clip">
+              <rect
+                x={padding}
+                y={padding}
+                width={innerWidth}
+                height={innerHeight}
+              />
+            </clipPath>
+          </defs>
+
           {/* Grid lines */}
           {[0, 0.25, 0.5, 0.75, 1].map((t) => {
             const x = padding + t * innerWidth;
@@ -184,27 +227,26 @@ export default function PredictionChart({
           })}
 
           {/* Plot actual HR */}
-          <path
-            d={generatePath(hrActual)}
-            fill="none"
-            stroke={colors.actual}
-            strokeWidth="2"
-          />
+          <g clipPath="url(#chart-clip)">
+            <path
+              d={generatePath(hrActual)}
+              fill="none"
+              stroke={colors.actual}
+              strokeWidth="2"
+            />
 
-          {/* Plot model predictions */}
-          {models.map((model) => {
-            const predValues = rideData.data.map((d) => d[model] || null);
-            return (
+            {/* Plot model predictions */}
+            {models.map((model, modelIdx) => (
               <path
                 key={`path-${model}`}
-                d={generatePath(predValues)}
+                d={generatePath(predictionSeries[modelIdx])}
                 fill="none"
                 stroke={colors[model] || "#999"}
                 strokeWidth="2"
                 strokeDasharray="4,4"
               />
-            );
-          })}
+            ))}
+          </g>
         </svg>
       </div>
 

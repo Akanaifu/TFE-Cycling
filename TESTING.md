@@ -67,7 +67,7 @@ npm run dev
 curl -X POST "http://127.0.0.1:8000/pipeline/run" \
   -H "Content-Type: application/json" \
   -d '{
-    "dir_path": "../../notebook/rides/cyclist9",
+    "dir_path": "../DB/rides/cyclist9",
     "selected_models_compute": ["pred_arx_selected"],
     "prev_ride": 1,
     "nan_ratio": 1.0,
@@ -93,7 +93,7 @@ curl -X POST "http://127.0.0.1:8000/pipeline/run" \
 #### Lister les rides
 
 ```bash
-GET http://localhost:8000/rides/list?dir_path=../../notebook/rides/cyclist9
+GET http://localhost:8000/rides/list?dir_path=../DB/rides/cyclist9
 ```
 
 **Vérifier:** Liste les rides avec leurs dates et nombre de points
@@ -101,7 +101,7 @@ GET http://localhost:8000/rides/list?dir_path=../../notebook/rides/cyclist9
 #### Tester la lecture PKL
 
 ```bash
-GET http://localhost:8000/pkl/test-read?file_path=../../notebook/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl
+GET http://localhost:8000/pkl/test-read?file_path=../DB/rides/cyclist9/2026-04-02T09_56_36.000000000.pkl
 ```
 
 **Vérifier:** Retourne les métadonnées du fichier PKL
@@ -128,7 +128,7 @@ GET http://localhost:8000/pkl/test-read?file_path=../../notebook/rides/cyclist9/
 
 ### Scénario 4: Autre cyclist
 
-- Changer: `dir_path` → `../../notebook/rides/cyclist0`
+- Changer: `dir_path` → `../DB/rides/cyclist0`
 - Exécuter
 - Vérifier: Charge les rides du nouveau cyclist
 
@@ -151,7 +151,7 @@ fastapi dev
 
 ```bash
 # Vérifier le répertoire
-ls ../../notebook/rides/cyclist9/*.pkl
+ls ../DB/rides/cyclist9/*.pkl
 ```
 
 ### Erreur: HTTP 400 "Models not computed"

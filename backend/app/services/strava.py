@@ -7,8 +7,12 @@ import os
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
+
+import pandas as pd
+
+from app.services.security import encrypt_secret_fernet
 
 
 AUTH_URL = "https://www.strava.com/oauth/authorize"
@@ -59,10 +63,11 @@ def _read_env_file() -> dict[str, str]:
 
 
 def _read_env(name: str, default: str = "") -> str:
-    value = os.getenv(name)
-    if value is None:
-        file_env = _read_env_file()
-        value = file_env.get(name, default)
+    file_env = _read_env_file()
+    if name in file_env and file_env[name] != "":
+        value = file_env[name]
+    else:
+        value = os.getenv(name, default)
     return value.strip() if isinstance(value, str) else str(value)
 
 
@@ -133,6 +138,34 @@ def _resolve_tokens_path(tokens_file: str) -> Path:
     return (backend_root / path).resolve()
 
 
+def _extract_oauth_code(raw_value: str) -> str:
+    """Normalize OAuth code input from either plain code or callback URL/query."""
+    clean = (raw_value or "").strip().strip('"').strip("'")
+    if not clean:
+        return ""
+
+    def _code_from_query(query: str) -> str:
+        parsed = parse_qs(query, keep_blank_values=False)
+        values = parsed.get("code")
+        if values and values[0]:
+            return values[0].strip()
+        return ""
+
+    if clean.startswith("http://") or clean.startswith("https://"):
+        parsed_url = urlparse(clean)
+        return _code_from_query(parsed_url.query) or _code_from_query(
+            parsed_url.fragment
+        )
+
+    if clean.startswith("?"):
+        return _code_from_query(clean[1:])
+
+    if "code=" in clean and ("&" in clean or "=" in clean):
+        return _code_from_query(clean)
+
+    return clean
+
+
 def _save_tokens(tokens_payload: dict[str, Any], tokens_file: str) -> Path:
     target = _resolve_tokens_path(tokens_file)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -140,11 +173,29 @@ def _save_tokens(tokens_payload: dict[str, Any], tokens_file: str) -> Path:
     return target
 
 
-def exchange_code_for_tokens(code: str) -> dict[str, Any]:
-    """Exchange OAuth code for Strava tokens and persist them on disk."""
-    clean_code = (code or "").strip()
+def build_encrypted_tokens_payload(tokens_payload: dict[str, Any]) -> dict[str, Any]:
+    """Prepare a Fernet-encrypted payload for future database storage."""
+    access_token = str(tokens_payload.get("access_token", "") or "").strip()
+    refresh_token = str(tokens_payload.get("refresh_token", "") or "").strip()
+
+    if not access_token or not refresh_token:
+        raise ValueError("Missing access_token or refresh_token for encryption")
+
+    return {
+        "access_token_enc": encrypt_secret_fernet(access_token),
+        "refresh_token_enc": encrypt_secret_fernet(refresh_token),
+        "expires_at": tokens_payload.get("expires_at"),
+        "scope": tokens_payload.get("scope"),
+    }
+
+
+def exchange_code_for_tokens_payload(code: str) -> dict[str, Any]:
+    """Exchange OAuth code for Strava tokens and return raw payload."""
+    clean_code = _extract_oauth_code(code)
     if not clean_code:
-        raise ValueError("Missing OAuth code")
+        raise ValueError(
+            "Missing OAuth code. Paste either the raw code or the full callback URL."
+        )
 
     settings = get_strava_settings()
     if not settings["client_id"]:
@@ -187,6 +238,14 @@ def exchange_code_for_tokens(code: str) -> dict[str, Any]:
 
     if "access_token" not in token_payload:
         raise ValueError(f"Token response missing access_token: {token_payload}")
+
+    return token_payload
+
+
+def exchange_code_for_tokens(code: str) -> dict[str, Any]:
+    """Exchange OAuth code for Strava tokens and persist them on disk."""
+    settings = get_strava_settings()
+    token_payload = exchange_code_for_tokens_payload(code)
 
     saved_path = _save_tokens(token_payload, settings["tokens_file"])
     athlete = token_payload.get("athlete")
@@ -231,6 +290,11 @@ def _is_token_expired(tokens: dict[str, Any], min_valid_seconds: int = 300) -> b
     return time() > (expires_at_i - min_valid_seconds)
 
 
+def is_token_expired(tokens: dict[str, Any], min_valid_seconds: int = 300) -> bool:
+    """Public wrapper for token expiration checks."""
+    return _is_token_expired(tokens, min_valid_seconds=min_valid_seconds)
+
+
 def _refresh_tokens(
     client_id: str, client_secret: str, refresh_token: str
 ) -> dict[str, Any]:
@@ -258,6 +322,13 @@ def _refresh_tokens(
         raise ValueError(f"Token refresh failed (HTTP {exc.code}): {body}") from exc
     except URLError as exc:
         raise ValueError(f"Token refresh network error: {exc}") from exc
+
+
+def refresh_tokens(
+    client_id: str, client_secret: str, refresh_token: str
+) -> dict[str, Any]:
+    """Public wrapper for Strava token refresh."""
+    return _refresh_tokens(client_id, client_secret, refresh_token)
 
 
 def _http_get_json(url: str, headers: dict[str, str] | None = None) -> Any:
@@ -345,3 +416,101 @@ def get_athlete_activities(
         )
 
     return result
+
+
+def get_activity_streams(access_token: str, activity_id: int) -> dict[str, list[Any]]:
+    """Fetch activity streams (time, heartrate, watts, distance, etc.) from Strava."""
+    url = (
+        f"{API_BASE}/activities/{activity_id}/streams"
+        "?keys=time,heartrate,watts,distance,velocity_smooth,cadence"
+        "&key_by_type=true"
+    )
+    headers = {"Authorization": f"Bearer {access_token}"}
+    data = _http_get_json(url, headers=headers)
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected response format from Strava streams endpoint")
+
+    streams: dict[str, list[Any]] = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            raw_values = value.get("data", [])
+        else:
+            raw_values = value
+        if isinstance(raw_values, list):
+            streams[key] = list(raw_values)
+        else:
+            streams[key] = []
+    return streams
+
+
+def build_activity_dataframe(
+    *,
+    activity: dict[str, Any],
+    streams: dict[str, list[Any]],
+) -> pd.DataFrame:
+    """Build a ride dataframe compatible with the existing pickle pipeline."""
+    time_stream = streams.get("time") or []
+    heartrate_stream = streams.get("heartrate") or []
+    watts_stream = streams.get("watts") or []
+    distance_stream = streams.get("distance") or []
+    velocity_stream = streams.get("velocity_smooth") or []
+    cadence_stream = streams.get("cadence") or []
+
+    length = max(
+        [
+            len(time_stream),
+            len(heartrate_stream),
+            len(watts_stream),
+            len(distance_stream),
+            len(velocity_stream),
+            len(cadence_stream),
+        ]
+        or [0]
+    )
+
+    rows: list[dict[str, Any]] = []
+    for index in range(length):
+        rows.append(
+            {
+                "t": time_stream[index] if index < len(time_stream) else index,
+                "hr": (
+                    heartrate_stream[index] if index < len(heartrate_stream) else None
+                ),
+                "po": watts_stream[index] if index < len(watts_stream) else None,
+                "distance": (
+                    distance_stream[index] if index < len(distance_stream) else None
+                ),
+                "speed": (
+                    velocity_stream[index] if index < len(velocity_stream) else None
+                ),
+                "cadence": (
+                    cadence_stream[index] if index < len(cadence_stream) else None
+                ),
+                "activity_id": activity.get("id"),
+                "start_date": activity.get("start_date"),
+                "sport_type": activity.get("sport_type"),
+                "name": activity.get("name", "Untitled"),
+            }
+        )
+
+    if not rows:
+        rows = [
+            {
+                "t": 0,
+                "hr": activity.get("average_heartrate"),
+                "po": activity.get("average_watts"),
+                "distance": activity.get("distance"),
+                "speed": activity.get("average_speed"),
+                "cadence": None,
+                "activity_id": activity.get("id"),
+                "start_date": activity.get("start_date"),
+                "sport_type": activity.get("sport_type"),
+                "name": activity.get("name", "Untitled"),
+            }
+        ]
+
+    frame = pd.DataFrame(rows)
+    frame.attrs["ride_datetime_label"] = activity.get("start_date") or "unknown"
+    frame.attrs["activity_id"] = activity.get("id")
+    frame.attrs["activity_name"] = activity.get("name", "Untitled")
+    return frame

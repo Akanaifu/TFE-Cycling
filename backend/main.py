@@ -5,13 +5,18 @@ Exposes REST endpoints for running HR/power prediction models on cycling rides.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+import re
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from pydantic import BaseModel, Field
+import app.services.auth as auth_service
+import app.services.database as database_service
 import app.services.notebook as notebook_service
+from app.services.security import decrypt_secret_fernet, encrypt_secret_fernet
 import app.services.strava as strava_service
 
 
@@ -75,6 +80,31 @@ class StravaExchangeCodeRequest(BaseModel):
     code: str = Field(..., min_length=1, description="Strava OAuth code")
 
 
+class AuthLoginRequest(BaseModel):
+    """Request payload for JWT login endpoint."""
+
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=1)
+
+
+class AuthRegisterRequest(BaseModel):
+    """Request payload for user registration endpoint."""
+
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=8)
+    display_name: str = Field(default="")
+
+
+def _is_admin(user: dict) -> bool:
+    return str(user.get("role", "")).strip().lower() == "admin"
+
+
+def _extract_cyclist_from_dir_path(dir_path: str) -> str | None:
+    normalized = (dir_path or "").replace("\\", "/")
+    match = re.search(r"(cyclist\d+)", normalized)
+    return match.group(1) if match else None
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     """Root endpoint returning API status."""
@@ -82,20 +112,157 @@ async def root() -> dict[str, str]:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok"}
+async def health() -> dict:
+    """Health check endpoint with DB connectivity status."""
+    db_state = database_service.get_database_status()
+    return {
+        "status": "ok",
+        "database": {
+            "connected": db_state.get("connected", False),
+        },
+    }
+
+
+@app.get("/db/status")
+async def db_status(
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
+    """Detailed DB status for troubleshooting backend/database linkage."""
+    _ = current_user
+    db_state = database_service.get_database_status()
+    if not db_state.get("connected"):
+        raise HTTPException(status_code=503, detail=db_state)
+    return {"ok": True, "db": db_state}
+
+
+@app.post("/auth/login")
+async def auth_login(payload: AuthLoginRequest) -> dict:
+    """Authenticate a user and return a JWT access token."""
+    user = auth_service.authenticate_user(payload.email, payload.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    token = auth_service.create_access_token(
+        user_id=str(user["id"]),
+        email=str(user["email"]),
+        role=str(user.get("role", "user")),
+    )
+    return {
+        "ok": True,
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user["id"]),
+            "email": str(user["email"]),
+            "display_name": user.get("display_name"),
+            "role": user.get("role", "user"),
+        },
+    }
+
+
+@app.post("/auth/register")
+async def auth_register(payload: AuthRegisterRequest) -> dict:
+    """Register a new user account."""
+    email = payload.email.strip().lower()
+
+    # Check if email already exists
+    existing = database_service.get_user_by_email(email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+
+    # Hash password
+    try:
+        password_hash = auth_service.hash_password(payload.password)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Password hashing failed: {exc}",
+        ) from exc
+
+    # Create user
+    user = database_service.create_user(
+        email=email,
+        password_hash=password_hash,
+        display_name=payload.display_name.strip(),
+        role="user",
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user",
+        )
+
+    # Return token for immediate login
+    token = auth_service.create_access_token(
+        user_id=str(user["id"]),
+        email=str(user["email"]),
+        role=str(user.get("role", "user")),
+    )
+
+    return {
+        "ok": True,
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user["id"]),
+            "email": str(user["email"]),
+            "display_name": user.get("display_name"),
+            "role": user.get("role", "user"),
+        },
+    }
+
+
+@app.get("/auth/me")
+async def auth_me(current_user: dict = Depends(auth_service.get_current_user)) -> dict:
+    """Return current authenticated user from JWT."""
+    return {
+        "ok": True,
+        "user": {
+            "id": str(current_user["id"]),
+            "email": str(current_user["email"]),
+            "display_name": current_user.get("display_name"),
+            "role": current_user.get("role", "user"),
+        },
+    }
 
 
 @app.get("/strava/status")
-async def strava_status() -> dict:
-    """Expose Strava env readiness for frontend UI."""
-    return {"ok": True, "status": strava_service.get_strava_status()}
+async def strava_status(
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
+    """Expose Strava env readiness and user-level Strava account status."""
+    base_status = strava_service.get_strava_status()
+    account = database_service.get_strava_account_for_user(str(current_user["id"]))
+
+    athlete_id = account.get("athlete_id") if account else None
+    expires_at = account.get("expires_at") if account else None
+    has_db_tokens = bool(account and account.get("access_token_enc"))
+
+    return {
+        "ok": True,
+        "status": {
+            **base_status,
+            "connected": has_db_tokens,
+            "athlete_id": athlete_id,
+            "expires_at": expires_at.isoformat() if expires_at else None,
+        },
+    }
 
 
 @app.get("/strava/auth-url")
-async def strava_auth_url(state: str | None = Query(None)) -> dict:
+async def strava_auth_url(
+    state: str | None = Query(None),
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
     """Build Strava OAuth authorization URL from env settings."""
+    _ = current_user
     try:
         url = strava_service.build_authorization_url(state=state)
         return {"ok": True, "auth_url": url}
@@ -106,11 +273,46 @@ async def strava_auth_url(state: str | None = Query(None)) -> dict:
 
 
 @app.post("/strava/exchange-code")
-async def strava_exchange_code(payload: StravaExchangeCodeRequest) -> dict:
-    """Exchange OAuth code for tokens and persist them in configured tokens file."""
+async def strava_exchange_code(
+    payload: StravaExchangeCodeRequest,
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
+    """Exchange OAuth code and persist encrypted tokens in PostgreSQL."""
     try:
-        result = strava_service.exchange_code_for_tokens(payload.code)
-        return {"ok": True, "result": result}
+        raw_payload = strava_service.exchange_code_for_tokens_payload(payload.code)
+        encrypted = strava_service.build_encrypted_tokens_payload(raw_payload)
+
+        athlete = raw_payload.get("athlete") if isinstance(raw_payload, dict) else None
+        athlete_id = athlete.get("id") if isinstance(athlete, dict) else None
+        if athlete_id is None:
+            raise ValueError("Token payload missing athlete.id")
+
+        settings = strava_service.get_strava_settings()
+        scope = str(raw_payload.get("scope") or settings.get("scopes") or "")
+
+        database_service.upsert_strava_account_for_user(
+            user_id=str(current_user["id"]),
+            athlete_id=int(athlete_id),
+            access_token_enc=str(encrypted["access_token_enc"]),
+            refresh_token_enc=str(encrypted["refresh_token_enc"]),
+            expires_at=(
+                int(raw_payload.get("expires_at"))
+                if raw_payload.get("expires_at") is not None
+                else None
+            ),
+            scope=scope,
+        )
+
+        return {
+            "ok": True,
+            "result": {
+                "saved": True,
+                "storage": "database",
+                "token_type": raw_payload.get("token_type", "Bearer"),
+                "expires_at": raw_payload.get("expires_at"),
+                "athlete_id": athlete_id,
+            },
+        }
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"Unable to exchange Strava code: {exc}"
@@ -119,27 +321,55 @@ async def strava_exchange_code(payload: StravaExchangeCodeRequest) -> dict:
 
 @app.get("/strava/activities")
 async def strava_get_activities(
-    limit: int = Query(10, ge=1, le=100, description="Number of activities to fetch")
+    limit: int = Query(10, ge=1, le=100, description="Number of activities to fetch"),
+    current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Fetch recent athlete activities from Strava API.
 
-    Requires valid tokens persisted from exchange-code endpoint.
+    Requires valid tokens persisted in PostgreSQL from exchange-code endpoint.
     Token refresh happens automatically if expired.
     """
     try:
         settings = strava_service.get_strava_settings()
-        tokens = strava_service._load_tokens(settings["tokens_file"])
+        account = database_service.get_strava_account_for_user(str(current_user["id"]))
+        if not account:
+            raise ValueError("No Strava account connected for current user")
+
+        tokens = {
+            "access_token": decrypt_secret_fernet(str(account["access_token_enc"])),
+            "refresh_token": decrypt_secret_fernet(str(account["refresh_token_enc"])),
+            "expires_at": (
+                int(account["expires_at"].replace(tzinfo=timezone.utc).timestamp())
+                if isinstance(account.get("expires_at"), datetime)
+                else None
+            ),
+            "athlete": {"id": account.get("athlete_id")},
+        }
 
         # Check and refresh if needed
-        if strava_service._is_token_expired(tokens):
-            new_tokens = strava_service._refresh_tokens(
+        if strava_service.is_token_expired(tokens):
+            new_tokens = strava_service.refresh_tokens(
                 settings["client_id"],
                 settings["client_secret"],
                 tokens.get("refresh_token", ""),
             )
-            # Preserve athlete data and save refreshed tokens
+            # Preserve athlete data and update encrypted DB tokens
             new_tokens["athlete"] = tokens.get("athlete", {})
-            strava_service._save_tokens(new_tokens, settings["tokens_file"])
+
+            database_service.update_strava_account_tokens(
+                user_id=str(current_user["id"]),
+                access_token_enc=encrypt_secret_fernet(
+                    str(new_tokens.get("access_token", ""))
+                ),
+                refresh_token_enc=encrypt_secret_fernet(
+                    str(new_tokens.get("refresh_token", ""))
+                ),
+                expires_at=(
+                    int(new_tokens.get("expires_at"))
+                    if new_tokens.get("expires_at") is not None
+                    else None
+                ),
+            )
             tokens = new_tokens
 
         access_token = tokens.get("access_token")
@@ -150,10 +380,64 @@ async def strava_get_activities(
             access_token=access_token, limit=limit
         )
 
+        persisted_activities: list[dict[str, object]] = []
+        failed_activities = 0
+        athlete_id = int(account.get("athlete_id") or 0)
+        if athlete_id <= 0:
+            raise ValueError("No athlete_id available for current Strava account")
+
+        for activity in activities:
+            try:
+                activity_id = int(activity.get("id") or 0)
+                if activity_id <= 0:
+                    raise ValueError("Missing activity id")
+
+                relative_path, absolute_path = (
+                    database_service.build_strava_activity_file_path(
+                        user_id=str(current_user["id"]),
+                        athlete_id=athlete_id,
+                        activity=activity,
+                    )
+                )
+
+                streams = strava_service.get_activity_streams(
+                    access_token=access_token,
+                    activity_id=activity_id,
+                )
+                ride_df = strava_service.build_activity_dataframe(
+                    activity=activity,
+                    streams=streams,
+                )
+
+                absolute_path.parent.mkdir(parents=True, exist_ok=True)
+                ride_df.to_pickle(absolute_path)
+
+                activity_with_path = dict(activity)
+                activity_with_path["file_path"] = relative_path
+                persisted_activities.append(activity_with_path)
+            except Exception:
+                failed_activities += 1
+
+        if not persisted_activities:
+            raise ValueError("Unable to persist any Strava activities")
+
+        persistence = database_service.upsert_rides_from_strava_activities(
+            user_id=str(current_user["id"]),
+            strava_account_id=str(account["id"]),
+            athlete_id=athlete_id,
+            activities=persisted_activities,
+        )
+
         return {
             "ok": True,
             "n_activities": len(activities),
             "activities": activities,
+            "written_count": len(persisted_activities),
+            "saved_count": int(persistence.get("saved_count", 0)),
+            "created_count": int(persistence.get("created_count", 0)),
+            "updated_count": int(persistence.get("updated_count", 0)),
+            "skipped_count": int(persistence.get("skipped_count", 0)),
+            "failed_count": failed_activities,
         }
     except Exception as exc:
         raise HTTPException(
@@ -162,10 +446,17 @@ async def strava_get_activities(
 
 
 @app.get("/cyclists/list")
-async def get_cyclists_list() -> dict:
+async def get_cyclists_list(
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
     """List all available cyclists."""
     try:
-        cyclists = notebook_service.list_cyclists()
+        if _is_admin(current_user):
+            cyclists = notebook_service.list_cyclists()
+        else:
+            cyclists = database_service.get_user_allowed_cyclists(
+                str(current_user["id"])
+            )
         return {
             "ok": True,
             "cyclists": cyclists,
@@ -181,9 +472,20 @@ async def get_cyclists_list() -> dict:
 async def get_training_ride(
     cyclist: str = Query(..., description="Cyclist name (e.g., cyclist9)"),
     ride_index: int = Query(1, description="Ride index (1-based)"),
+    current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Get a single training ride data."""
     try:
+        if not _is_admin(current_user):
+            allowed = set(
+                database_service.get_user_allowed_cyclists(str(current_user["id"]))
+            )
+            if cyclist not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied for this cyclist",
+                )
+
         get_single_ride_fn = getattr(notebook_service, "get_single_ride")
         return get_single_ride_fn(cyclist, ride_index)
     except Exception as exc:
@@ -194,10 +496,22 @@ async def get_training_ride(
 
 @app.get("/rides/list")
 async def list_rides(
-    dir_path: str = Query(..., description="Directory path (relative or absolute)")
+    dir_path: str = Query(..., description="Directory path (relative or absolute)"),
+    current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """List available rides in a directory with basic info."""
     try:
+        if not _is_admin(current_user):
+            requested_cyclist = _extract_cyclist_from_dir_path(dir_path)
+            allowed = set(
+                database_service.get_user_allowed_cyclists(str(current_user["id"]))
+            )
+            if requested_cyclist is None or requested_cyclist not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied for requested rides directory",
+                )
+
         rides = notebook_service.extract_donnee_pickle(dir_path)
         ride_list = []
         for i, ride in enumerate(rides, start=1):
@@ -223,8 +537,12 @@ async def list_rides(
 
 
 @app.post("/analysis/run")
-async def run_analysis(payload: AnalysisRequest) -> dict:
+async def run_analysis(
+    payload: AnalysisRequest,
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
     """Execute analysis on rides using specified configuration."""
+    _ = current_user
     try:
         config = notebook_service.AnalysisConfig(
             dir_path=payload.dir_path,
@@ -242,7 +560,10 @@ async def run_analysis(payload: AnalysisRequest) -> dict:
 
 
 @app.post("/pipeline/run")
-async def run_pipeline(payload: PipelineRequest) -> dict:
+async def run_pipeline(
+    payload: PipelineRequest,
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
     """Execute full pipeline and return rides with predictions.
 
     Returns:
@@ -256,9 +577,21 @@ async def run_pipeline(payload: PipelineRequest) -> dict:
                    ride_datetime, and prediction columns
     """
     try:
-        rides = notebook_service.extract_donnee_pickle(payload.dir_path)
+        effective_dir = payload.dir_path
+        if not _is_admin(current_user):
+            requested_cyclist = _extract_cyclist_from_dir_path(payload.dir_path)
+            allowed = set(
+                database_service.get_user_allowed_cyclists(str(current_user["id"]))
+            )
+            if requested_cyclist is None or requested_cyclist not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied for requested pipeline directory",
+                )
+
+        rides = notebook_service.extract_donnee_pickle(effective_dir)
         if not rides:
-            raise ValueError(f"No valid rides found in {payload.dir_path}")
+            raise ValueError(f"No valid rides found in {effective_dir}")
 
         selected_models_compute = payload.selected_models_compute
         predictions: dict[str, list[pd.DataFrame]] = {}
@@ -367,16 +700,22 @@ async def run_pipeline(payload: PipelineRequest) -> dict:
 
 
 @app.post("/pkl/test-read")
-async def test_read_pkl(payload: PklReadRequest) -> dict:
+async def test_read_pkl(
+    payload: PklReadRequest,
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
     """Read a PKL file and return a minimal diagnostic payload (POST)."""
+    _ = current_user
     return _read_pkl_diagnostic(payload.file_path)
 
 
 @app.get("/pkl/test-read")
 async def test_read_pkl_get(
-    file_path: str = Query(..., description="Path to .pkl file")
+    file_path: str = Query(..., description="Path to .pkl file"),
+    current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Read a PKL file and return a minimal diagnostic payload (GET)."""
+    _ = current_user
     return _read_pkl_diagnostic(file_path)
 
 

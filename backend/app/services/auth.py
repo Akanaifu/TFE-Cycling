@@ -1,0 +1,170 @@
+"""JWT authentication helpers and dependencies."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+import importlib
+import os
+from pathlib import Path
+from typing import Any
+
+from fastapi import Depends, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.services import database as database_service
+
+
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _read_env_file() -> dict[str, str]:
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.exists():
+        return {}
+
+    parsed: dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        parsed[key.strip()] = value.strip().strip('"').strip("'")
+    return parsed
+
+
+def _read_env(name: str, default: str = "") -> str:
+    file_env = _read_env_file()
+    if name in file_env and file_env[name] != "":
+        value = file_env[name]
+    else:
+        value = os.getenv(name, default)
+    return value.strip() if isinstance(value, str) else str(value)
+
+
+def _jwt_secret() -> str:
+    secret = _read_env("JWT_SECRET_KEY", "")
+    if not secret:
+        raise ValueError("Missing JWT_SECRET_KEY in environment")
+    if len(secret.encode("utf-8")) < 32:
+        raise ValueError(
+            "JWT_SECRET_KEY is too short. Use at least 32 bytes for HS256."
+        )
+    return secret
+
+
+def _jwt_algorithm() -> str:
+    return _read_env("JWT_ALGORITHM", "HS256") or "HS256"
+
+
+def _jwt_expire_minutes() -> int:
+    raw = _read_env("JWT_EXPIRE_MINUTES", "120")
+    try:
+        value = int(raw)
+        return max(5, value)
+    except ValueError:
+        return 120
+
+
+def _load_bcrypt() -> Any:
+    try:
+        return importlib.import_module("bcrypt")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(f"Missing dependency bcrypt: {exc}") from exc
+
+
+def _load_jwt() -> Any:
+    try:
+        return importlib.import_module("jwt")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(f"Missing dependency PyJWT: {exc}") from exc
+
+
+def verify_password(password_plain: str, password_stored: str) -> bool:
+    """Verify password against bcrypt hash, with plain fallback for legacy seed rows."""
+    if not password_plain or not password_stored:
+        return False
+
+    stored = password_stored.strip()
+    # Legacy fallback: plain text value in seed data.
+    if not stored.startswith("$2"):
+        return password_plain == stored
+
+    bcrypt = _load_bcrypt()
+    try:
+        return bcrypt.checkpw(password_plain.encode("utf-8"), stored.encode("utf-8"))
+    except ValueError:
+        return False
+
+
+def hash_password(password_plain: str) -> str:
+    """Hash a password using bcrypt."""
+    if not password_plain:
+        raise ValueError("Password cannot be empty")
+
+    bcrypt = _load_bcrypt()
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password_plain.encode("utf-8"), salt).decode("utf-8")
+
+
+def create_access_token(*, user_id: str, email: str, role: str) -> str:
+    jwt_mod = _load_jwt()
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "role": role,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=_jwt_expire_minutes())).timestamp()),
+    }
+    return jwt_mod.encode(payload, _jwt_secret(), algorithm=_jwt_algorithm())
+
+
+def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
+    user = database_service.get_user_by_email(email.strip().lower())
+    if not user:
+        return None
+
+    if not verify_password(password, str(user.get("password_hash", ""))):
+        return None
+    return user
+
+
+def _decode_token(token: str) -> dict[str, Any]:
+    jwt_mod = _load_jwt()
+    try:
+        return jwt_mod.decode(token, _jwt_secret(), algorithms=[_jwt_algorithm()])
+    except jwt_mod.PyJWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        ) from exc
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+) -> dict[str, Any]:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token",
+        )
+
+    payload = _decode_token(credentials.credentials)
+    user_id = str(payload.get("sub", "") or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+    user = database_service.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    return user
+
+
+CurrentUser = Depends(get_current_user)
