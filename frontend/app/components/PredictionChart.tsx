@@ -286,7 +286,23 @@ function StatisticsTable({
   rideData: RideData;
   models: string[];
 }) {
-  const hr = rideData.data.map((d) => d.hr || null).filter((h) => h !== null);
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const hr = rideData.data
+    .map((d) => toNumberOrNull(d.hr))
+    .filter((h): h is number => h !== null);
+
+  const modelSeries = (model: string) =>
+    rideData.data.map((d) => toNumberOrNull(d[model]));
 
   const calculateStats = (
     values: (number | null)[],
@@ -350,9 +366,7 @@ function StatisticsTable({
                 key={`mean-${model}`}
                 className="px-4 py-2 text-right text-gray-700"
               >
-                {calculateStats(
-                  rideData.data.map((d) => d[model] || null),
-                ).mean.toFixed(1)}
+                {calculateStats(modelSeries(model)).mean.toFixed(1)}
               </td>
             ))}
           </tr>
@@ -364,9 +378,7 @@ function StatisticsTable({
                 key={`rmse-${model}`}
                 className="px-4 py-2 text-right text-gray-700"
               >
-                {calculateRMSE(
-                  rideData.data.map((d) => d[model] || null),
-                ).toFixed(2)}
+                {calculateRMSE(modelSeries(model)).toFixed(2)}
               </td>
             ))}
           </tr>
