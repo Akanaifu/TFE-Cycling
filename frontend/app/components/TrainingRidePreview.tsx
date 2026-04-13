@@ -50,9 +50,13 @@ export default function TrainingRidePreview({
 
   useEffect(() => {
     const fetchRideData = async () => {
-      if (!authToken) {
+      if (!authToken || !cyclist) {
         setRideData(null);
-        setError("Connecte-toi pour charger la ride d'entrainement.");
+        setError(
+          !authToken
+            ? "Connecte-toi pour charger la ride d'entrainement."
+            : "Selectionne un cycliste pour charger la ride d'entrainement.",
+        );
         return;
       }
 

@@ -131,6 +131,10 @@ export default function PipelineRunner() {
       setError("Connecte-toi pour executer le pipeline.");
       return;
     }
+    if (!selectedCyclist) {
+      setError("Selectionne un cycliste avant d'executer le pipeline.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
