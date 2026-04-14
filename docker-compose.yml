@@ -1,4 +1,25 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tfe_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tfe_cycling}
+      POSTGRES_USER: ${POSTGRES_USER:-tfe_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./DB/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-tfe_user} -d ${POSTGRES_DB:-tfe_cycling}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
@@ -6,13 +27,12 @@ services:
     container_name: tfe_backend
     restart: unless-stopped
     environment:
-      # DB runs directly on the server host, outside docker-compose.
-      DATABASE_URL: ${DATABASE_URL:-}
-      PGHOST: ${PGHOST:-host.docker.internal}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tfe_user}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-tfe_cycling}
+      PGHOST: postgres
       PGPORT: ${PGPORT:-5432}
       PGDATABASE: ${PGDATABASE:-tfe_cycling}
       PGUSER: ${PGUSER:-tfe_user}
-      PGPASSWORD: ${PGPASSWORD:-}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change_me}
       APP_FERNET_KEY: ${APP_FERNET_KEY:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -22,8 +42,9 @@ services:
       STRAVA_REDIRECT_URI: ${STRAVA_REDIRECT_URI:-https://nathan.phausman.be/strava}
       STRAVA_SCOPES: ${STRAVA_SCOPES:-read,activity:read_all}
       STRAVA_TOKENS_FILE: ${STRAVA_TOKENS_FILE:-.strava_tokens.json}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./DB/rides:/opt/tfe/DB/rides
     ports:
@@ -34,10 +55,13 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://nathan.phausman.be}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.tondomaine.be}
     container_name: tfe_frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "3000:3000"
+
+volumes:
+  postgres_data:

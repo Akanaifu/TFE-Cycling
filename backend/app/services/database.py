@@ -207,6 +207,24 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
             return dict(row) if row else None
 
 
+def get_users_with_non_bcrypt_hashes(limit: int = 20) -> list[str]:
+    """Return emails for users that do not have bcrypt password hashes."""
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        SELECT email
+        FROM users
+        WHERE COALESCE(password_hash, '') = ''
+           OR password_hash NOT LIKE '$2%'
+        ORDER BY email ASC
+        LIMIT %s
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (int(limit),))
+            rows_data = cur.fetchall()
+            return [str(row.get("email", "")) for row in rows_data if row.get("email")]
+
+
 def create_user(
     *,
     email: str,

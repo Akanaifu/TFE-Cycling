@@ -80,14 +80,13 @@ def _load_jwt() -> Any:
 
 
 def verify_password(password_plain: str, password_stored: str) -> bool:
-    """Verify password against bcrypt hash, with plain fallback for legacy seed rows."""
+    """Verify password strictly against a bcrypt hash."""
     if not password_plain or not password_stored:
         return False
 
     stored = password_stored.strip()
-    # Legacy fallback: plain text value in seed data.
     if not stored.startswith("$2"):
-        return password_plain == stored
+        return False
 
     bcrypt = _load_bcrypt()
     try:

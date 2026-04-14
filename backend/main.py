@@ -5,37 +5,49 @@ Exposes REST endpoints for running HR/power prediction models on cycling rides.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import re
+import time
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from pydantic import BaseModel, Field
 import app.services.auth as auth_service
 import app.services.database as database_service
 import app.services.notebook as notebook_service
-from app.services import seed
 from app.services.security import decrypt_secret_fernet, encrypt_secret_fernet
-from contextlib import asynccontextmanager
 import app.services.strava as strava_service
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    print("Backend starting up...")
-    result = seed.regenerate_pkl_files_from_db()
-    print(f"PKL regeneration result: {result}")
-
-    yield
-
-    # Shutdown
-    print("Backend shutting down...")
+app = FastAPI(title="TFE Cycling API", version="0.1.0")
 
 
-app = FastAPI(title="TFE Cycling API", version="0.1.0", lifespan=lifespan)
+AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
+AUTH_RATE_LIMIT_MAX_ATTEMPTS = 8
+_auth_attempts: dict[str, deque[float]] = defaultdict(deque)
+
+
+@app.on_event("startup")
+async def startup_security_checks() -> None:
+    """Fail fast if unsafe password hashes are present in users table."""
+    try:
+        insecure_users = database_service.get_users_with_non_bcrypt_hashes(limit=10)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Startup security check failed while validating password hashes: {exc}"
+        ) from exc
+
+    if insecure_users:
+        preview = ", ".join(insecure_users)
+        raise RuntimeError(
+            "Unsafe users.password_hash values detected (non-bcrypt). "
+            f"Update hashes before startup. Sample users: {preview}"
+        )
+
 
 # Enable CORS for frontend access
 app.add_middleware(
@@ -45,13 +57,10 @@ app.add_middleware(
         "https://www.tfe-cycling.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
     ],
-    allow_origin_regex=r"^https://([a-z0-9-]+\.)?vercel\.app$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -96,6 +105,7 @@ class StravaExchangeCodeRequest(BaseModel):
     """Request payload to exchange Strava OAuth code."""
 
     code: str = Field(..., min_length=1, description="Strava OAuth code")
+    state: str = Field(..., min_length=1, description="Signed OAuth state")
 
 
 class AuthLoginRequest(BaseModel):
@@ -121,6 +131,38 @@ def _extract_cyclist_from_dir_path(dir_path: str) -> str | None:
     normalized = (dir_path or "").replace("\\", "/")
     match = re.search(r"(cyclist\d+)", normalized)
     return match.group(1) if match else None
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_auth_rate_limit(request: Request, email_hint: str = "") -> None:
+    now = time.time()
+    key = f"{_client_ip(request)}::{email_hint.strip().lower()}"
+    bucket = _auth_attempts[key]
+
+    while bucket and now - bucket[0] > AUTH_RATE_LIMIT_WINDOW_SECONDS:
+        bucket.popleft()
+
+    if len(bucket) >= AUTH_RATE_LIMIT_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many authentication attempts. Please retry later.",
+        )
+
+    bucket.append(now)
+
+
+def _is_truthy_env(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_pkl_diagnostic_enabled() -> bool:
+    return _is_truthy_env(os.getenv("ENABLE_PKL_DIAGNOSTIC", ""))
 
 
 @app.get("/")
@@ -154,8 +196,9 @@ async def db_status(
 
 
 @app.post("/auth/login")
-async def auth_login(payload: AuthLoginRequest) -> dict:
+async def auth_login(payload: AuthLoginRequest, request: Request) -> dict:
     """Authenticate a user and return a JWT access token."""
+    _enforce_auth_rate_limit(request, payload.email)
     user = auth_service.authenticate_user(payload.email, payload.password)
     if not user:
         raise HTTPException(
@@ -182,8 +225,9 @@ async def auth_login(payload: AuthLoginRequest) -> dict:
 
 
 @app.post("/auth/register")
-async def auth_register(payload: AuthRegisterRequest) -> dict:
+async def auth_register(payload: AuthRegisterRequest, request: Request) -> dict:
     """Register a new user account."""
+    _enforce_auth_rate_limit(request, payload.email)
     email = payload.email.strip().lower()
 
     # Check if email already exists
@@ -276,14 +320,17 @@ async def strava_status(
 
 @app.get("/strava/auth-url")
 async def strava_auth_url(
-    state: str | None = Query(None),
+    state: str | None = Query(None, description="Optional client nonce"),
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Build Strava OAuth authorization URL from env settings."""
-    _ = current_user
     try:
-        url = strava_service.build_authorization_url(state=state)
-        return {"ok": True, "auth_url": url}
+        oauth_state = strava_service.build_oauth_state_token(
+            user_id=str(current_user["id"]),
+            nonce=state,
+        )
+        url = strava_service.build_authorization_url(state=oauth_state)
+        return {"ok": True, "auth_url": url, "oauth_state": oauth_state}
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"Unable to build Strava auth URL: {exc}"
@@ -297,6 +344,13 @@ async def strava_exchange_code(
 ) -> dict:
     """Exchange OAuth code and persist encrypted tokens in PostgreSQL."""
     try:
+        if not strava_service.validate_oauth_state_token(
+            payload.state,
+            user_id=str(current_user["id"]),
+            max_age_seconds=900,
+        ):
+            raise ValueError("Invalid OAuth state")
+
         raw_payload = strava_service.exchange_code_for_tokens_payload(payload.code)
         encrypted = strava_service.build_encrypted_tokens_payload(raw_payload)
 
@@ -560,10 +614,21 @@ async def run_analysis(
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Execute analysis on rides using specified configuration."""
-    _ = current_user
     try:
+        effective_dir = payload.dir_path
+        if not _is_admin(current_user):
+            requested_cyclist = _extract_cyclist_from_dir_path(payload.dir_path)
+            allowed = set(
+                database_service.get_user_allowed_cyclists(str(current_user["id"]))
+            )
+            if requested_cyclist is None or requested_cyclist not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied for requested analysis directory",
+                )
+
         config = notebook_service.AnalysisConfig(
-            dir_path=payload.dir_path,
+            dir_path=effective_dir,
             selected_models_plot=payload.selected_models_plot,
             selected_models_stats=payload.selected_models_stats,
             show_rmse_table=payload.show_rmse_table,
@@ -723,7 +788,8 @@ async def test_read_pkl(
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Read a PKL file and return a minimal diagnostic payload (POST)."""
-    _ = current_user
+    if not _is_pkl_diagnostic_enabled() or not _is_admin(current_user):
+        raise HTTPException(status_code=404, detail="Not found")
     return _read_pkl_diagnostic(payload.file_path)
 
 
@@ -733,7 +799,8 @@ async def test_read_pkl_get(
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Read a PKL file and return a minimal diagnostic payload (GET)."""
-    _ = current_user
+    if not _is_pkl_diagnostic_enabled() or not _is_admin(current_user):
+        raise HTTPException(status_code=404, detail="Not found")
     return _read_pkl_diagnostic(file_path)
 
 
@@ -744,6 +811,17 @@ def _read_pkl_diagnostic(file_path: str) -> dict:
         if not pkl_path.is_absolute():
             pkl_path = Path.cwd() / pkl_path
         pkl_path = pkl_path.resolve()
+
+        allowed_root = (
+            Path(__file__).resolve().parent.parent / "DB" / "rides"
+        ).resolve()
+        try:
+            pkl_path.relative_to(allowed_root)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only files under DB/rides are allowed",
+            ) from exc
 
         if not pkl_path.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {pkl_path}")

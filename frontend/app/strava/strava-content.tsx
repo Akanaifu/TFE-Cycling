@@ -79,6 +79,7 @@ export default function StravaPipelineContent() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [oauthState, setOauthState] = useState("");
 
   const authHeaders = useMemo(() => {
     if (!authToken) {
@@ -87,37 +88,46 @@ export default function StravaPipelineContent() {
     return { Authorization: `Bearer ${authToken}` };
   }, [authToken]);
 
-  const extractOAuthCode = (value: string): string => {
+  const extractOAuthParams = (
+    value: string,
+  ): { code: string; state: string } => {
     const clean = (value || "").trim().replace(/^['\"]|['\"]$/g, "");
     if (!clean) {
-      return "";
+      return { code: "", state: "" };
     }
 
-    const codeFromQuery = (query: string): string => {
+    const paramsFromQuery = (
+      query: string,
+    ): { code: string; state: string } => {
       const params = new URLSearchParams(query);
-      return (params.get("code") || "").trim();
+      return {
+        code: (params.get("code") || "").trim(),
+        state: (params.get("state") || "").trim(),
+      };
     };
 
     if (clean.startsWith("http://") || clean.startsWith("https://")) {
       try {
         const url = new URL(clean);
-        return (
-          codeFromQuery(url.search.slice(1)) || codeFromQuery(url.hash.slice(1))
-        );
+        const fromSearch = paramsFromQuery(url.search.slice(1));
+        if (fromSearch.code || fromSearch.state) {
+          return fromSearch;
+        }
+        return paramsFromQuery(url.hash.slice(1));
       } catch {
-        return "";
+        return { code: "", state: "" };
       }
     }
 
     if (clean.startsWith("?")) {
-      return codeFromQuery(clean.slice(1));
+      return paramsFromQuery(clean.slice(1));
     }
 
     if (clean.includes("code=") && clean.includes("=")) {
-      return codeFromQuery(clean.replace(/^#/, ""));
+      return paramsFromQuery(clean.replace(/^#/, ""));
     }
 
-    return clean;
+    return { code: clean, state: "" };
   };
 
   useEffect(() => {
@@ -205,6 +215,7 @@ export default function StravaPipelineContent() {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
       setAuthUrl(payload.auth_url as string);
+      setOauthState((payload.oauth_state as string) || "");
     } catch (err) {
       setOauthAuthError(err instanceof Error ? err.message : "Erreur inconnue");
     } finally {
@@ -218,9 +229,17 @@ export default function StravaPipelineContent() {
       return;
     }
 
-    const code = extractOAuthCode(oauthCode);
+    const extracted = extractOAuthParams(oauthCode);
+    const code = extracted.code;
+    const state =
+      extracted.state || oauthState || (searchParams.get("state") || "").trim();
     if (!code) {
       setExchangeError("Le code OAuth est requis.");
+      setExchangeResult(null);
+      return;
+    }
+    if (!state) {
+      setExchangeError("Le state OAuth est requis.");
       setExchangeResult(null);
       return;
     }
@@ -235,7 +254,7 @@ export default function StravaPipelineContent() {
           "Content-Type": "application/json",
           ...authHeaders,
         },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, state }),
       });
 
       const payload = await response.json();
@@ -267,7 +286,8 @@ export default function StravaPipelineContent() {
       }
 
       const codeFromUrl = (searchParams.get("code") || "").trim();
-      if (!codeFromUrl) {
+      const stateFromUrl = (searchParams.get("state") || "").trim();
+      if (!codeFromUrl || !stateFromUrl) {
         return;
       }
 
@@ -283,7 +303,7 @@ export default function StravaPipelineContent() {
             "Content-Type": "application/json",
             ...authHeaders,
           },
-          body: JSON.stringify({ code: codeFromUrl }),
+          body: JSON.stringify({ code: codeFromUrl, state: stateFromUrl }),
         });
 
         const payload = await response.json();
@@ -317,12 +337,15 @@ export default function StravaPipelineContent() {
   const handlePasteOAuthCode = async () => {
     try {
       const pasted = await navigator.clipboard.readText();
-      const normalized = extractOAuthCode(pasted);
-      if (!normalized) {
+      const normalized = extractOAuthParams(pasted);
+      if (!normalized.code) {
         setExchangeError("Aucun code OAuth detecte dans le presse-papiers.");
         return;
       }
-      setOauthCode(normalized);
+      setOauthCode(normalized.code);
+      if (normalized.state) {
+        setOauthState(normalized.state);
+      }
       setExchangeError(null);
     } catch {
       setExchangeError("Impossible de lire le presse-papiers.");
