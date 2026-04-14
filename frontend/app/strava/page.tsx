@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   commonPipelineStyles,
   stravaPageStyles,
@@ -50,10 +50,12 @@ type StravaActivity = {
 
 export default function StravaPipelinePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const apiUrl = useMemo(
     () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
     [],
   );
+  const autoExchangeDoneRef = useRef(false);
 
   const [status, setStatus] = useState<StravaStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -258,6 +260,60 @@ export default function StravaPipelinePage() {
     }
   };
 
+  useEffect(() => {
+    const autoExchangeCode = async () => {
+      if (!authToken || autoExchangeDoneRef.current) {
+        return;
+      }
+
+      const codeFromUrl = (searchParams.get("code") || "").trim();
+      if (!codeFromUrl) {
+        return;
+      }
+
+      autoExchangeDoneRef.current = true;
+      setLoadingExchange(true);
+      setExchangeError(null);
+      setExchangeResult(null);
+
+      try {
+        const response = await fetch(`${apiUrl}/strava/exchange-code`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({ code: codeFromUrl }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || `HTTP ${response.status}`);
+        }
+
+        setExchangeResult(payload.result as ExchangeResult);
+
+        const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
+          headers: authHeaders,
+        });
+        const refreshedPayload = await refreshedStatus.json();
+        if (refreshedStatus.ok) {
+          setStatus(refreshedPayload.status as StravaStatus);
+        }
+
+        router.replace("/strava");
+      } catch (err) {
+        setExchangeError(
+          err instanceof Error ? err.message : "Erreur inconnue",
+        );
+      } finally {
+        setLoadingExchange(false);
+      }
+    };
+
+    autoExchangeCode();
+  }, [apiUrl, authHeaders, authToken, router, searchParams]);
+
   const handlePasteOAuthCode = async () => {
     try {
       const pasted = await navigator.clipboard.readText();
@@ -417,14 +473,13 @@ export default function StravaPipelinePage() {
             {authUrl && (
               <div className="mt-2 space-y-2">
                 <p className="break-all text-blue-950">{authUrl}</p>
-                <a
-                  href={authUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={stravaPageStyles.openLink}
-                >
+                <a href={authUrl} className={stravaPageStyles.openLink}>
                   Ouvrir Strava
                 </a>
+                <p className="text-sm text-slate-700">
+                  Apres autorisation, Strava te redirige automatiquement sur
+                  cette page pour echanger le code.
+                </p>
               </div>
             )}
           </div>
@@ -435,8 +490,8 @@ export default function StravaPipelinePage() {
             2. Echange de code
           </h2>
           <p className={`mt-2 ${commonPipelineStyles.bodyText}`}>
-            Colle le parametre <span className="font-mono">code</span> de
-            l&apos;URL de retour Strava puis echange-le contre les tokens.
+            Le code OAuth est recupere automatiquement depuis l&apos;URL de
+            retour. Le champ ci-dessous reste disponible en secours si besoin.
           </p>
           <div className={stravaPageStyles.oauthPanel}>
             <input
