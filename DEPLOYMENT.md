@@ -1,9 +1,59 @@
 # Guide de deploiement (TFE-Cycling)
 
 Ce guide est adapte a ce repo:
+
 - backend FastAPI: `TFE-Cycling/backend`
 - frontend Next.js: `TFE-Cycling/frontend`
 - scripts SQL: `TFE-Cycling/DB/sql`
+
+## 0. Deploiement serveur perso avec Docker
+
+Cette option lance frontend + backend dans Docker, avec PostgreSQL directement sur le serveur (hors Docker).
+
+Fichiers ajoutes pour ce mode:
+
+- `docker-compose.yml`
+- `backend/Dockerfile`
+- `frontend/Dockerfile`
+- `.env.server.example`
+
+Etapes:
+
+1. Copier le fichier d'environnement:
+
+```bash
+cp .env.server.example .env.server
+```
+
+2. Completer les secrets dans `.env.server`:
+
+- `DATABASE_URL` ou les variables `PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD`
+- `APP_FERNET_KEY`
+- `JWT_SECRET_KEY`
+- `STRAVA_CLIENT_ID`
+- `STRAVA_CLIENT_SECRET`
+- `STRAVA_REDIRECT_URI`
+
+3. Lancer la stack:
+
+```bash
+docker compose --env-file .env.server up -d --build
+```
+
+4. Verifier:
+
+- frontend: `https://app.tondomaine.be`
+- backend: `https://api.tondomaine.be/health`
+
+Stockage persistant:
+
+- fichiers PKL: bind mount `./DB/rides -> /opt/tfe/DB/rides`
+
+Arret:
+
+```bash
+docker compose --env-file .env.server down
+```
 
 ## 1. Architecture recommandee
 
