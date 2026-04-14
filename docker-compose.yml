@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tfe_cycling
+      POSTGRES_USER: tfe_user
+      POSTGRES_PASSWORD: ton_mot_de_passe
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./DB/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tfe_user -d tfe_cycling"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
