@@ -16,11 +16,26 @@ from pydantic import BaseModel, Field
 import app.services.auth as auth_service
 import app.services.database as database_service
 import app.services.notebook as notebook_service
+from app.services import seed
 from app.services.security import decrypt_secret_fernet, encrypt_secret_fernet
+from contextlib import asynccontextmanager
 import app.services.strava as strava_service
 
 
-app = FastAPI(title="TFE Cycling API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("Backend starting up...")
+    result = seed.regenerate_pkl_files_from_db()
+    print(f"PKL regeneration result: {result}")
+
+    yield
+
+    # Shutdown
+    print("Backend shutting down...")
+
+
+app = FastAPI(title="TFE Cycling API", version="0.1.0", lifespan=lifespan)
 
 # Enable CORS for frontend access
 app.add_middleware(
