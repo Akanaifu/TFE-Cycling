@@ -10,6 +10,16 @@ from typing import Any
 import importlib
 
 
+def get_all_rides() -> list[dict[str, Any]]:
+    """Get all rides from the database."""
+    psycopg, rows = _get_psycopg_modules()
+    query = "SELECT id, user_id, activity_id, file_path FROM rides"
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchall()
+
+
 def _read_env_file() -> dict[str, str]:
     """Read backend .env as fallback if process env is missing."""
     env_path = Path(__file__).resolve().parents[2] / ".env"

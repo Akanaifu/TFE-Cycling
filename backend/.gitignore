@@ -37,7 +37,8 @@ __pycache__*
 .strava_tokens*
 # vercel
 .vercel
-
+# Dynamically generated pickle files
+DB/rides/**/*.pkl
 # typescript
 *.tsbuildinfo
 next-env.d.ts
