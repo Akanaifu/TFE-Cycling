@@ -1,12 +1,10 @@
 "use client";
 
-import React from "react";
-
 interface RideData {
   datetime: string;
   n_points: number;
   columns: string[];
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
 }
 
 export default function RideSelector({
@@ -26,7 +24,8 @@ export default function RideSelector({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {rides.map((ride, idx) => (
           <button
-            key={idx}
+            key={`${ride.datetime}-${ride.n_points}`}
+            type="button"
             onClick={() => onSelectRide(idx)}
             className={`p-4 rounded-lg border-2 transition-all text-left ${
               selectedIndex === idx

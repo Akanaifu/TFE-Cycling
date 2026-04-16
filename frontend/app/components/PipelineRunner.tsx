@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PredictionChart from "./PredictionChart";
 import RideSelector from "./RideSelector";
 import CyclistSelector from "./CyclistSelector";
@@ -347,9 +347,7 @@ export default function PipelineRunner() {
 
         {/* Model Selection */}
         <div>
-          <label className={predictionPageStyles.modelLabel}>
-            Modèles à calculer
-          </label>
+          <p className={predictionPageStyles.modelLabel}>Modèles à calculer</p>
           <div className={predictionPageStyles.modelGrid}>
             {availableModels.map((model) => (
               <label
@@ -372,6 +370,7 @@ export default function PipelineRunner() {
 
         {/* Run Button */}
         <button
+          type="button"
           onClick={handleRun}
           disabled={loading || selectedModels.length === 0}
           className={predictionPageStyles.runButton}
@@ -487,20 +486,23 @@ function DataTable({
           </tr>
         </thead>
         <tbody>
-          {displayedData.map((row, idx) => (
-            <tr key={idx} className={predictionPageStyles.tableRow}>
-              {filteredColumns.map((col) => (
-                <td
-                  key={`${idx}-${col}`}
-                  className={predictionPageStyles.tableCell}
-                >
-                  {typeof row[col] === "number"
-                    ? row[col].toFixed(2)
-                    : String(row[col] ?? "")}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {displayedData.map((row) => {
+            const rowKey = `${String(row.t ?? row.t_min ?? row.datetime ?? "row")}-${String(row.hr ?? "")}-${String(row.po ?? "")}`;
+            return (
+              <tr key={rowKey} className={predictionPageStyles.tableRow}>
+                {filteredColumns.map((col) => (
+                  <td
+                    key={`${rowKey}-${col}`}
+                    className={predictionPageStyles.tableCell}
+                  >
+                    {typeof row[col] === "number"
+                      ? row[col].toFixed(2)
+                      : String(row[col] ?? "")}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <p className={predictionPageStyles.tableFooter}>

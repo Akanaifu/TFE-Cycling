@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface TrainingRideData {
   cyclist: string;
@@ -236,7 +236,7 @@ export default function TrainingRidePreview({
               <tbody>
                 {rideData.data.slice(0, 5).map((row, idx) => (
                   <tr
-                    key={idx}
+                    key={`${String(row.t_min ?? "na")}-${String(row.hr ?? "na")}-${String(row.po ?? "na")}`}
                     className={
                       idx % 2 === 0
                         ? "bg-white border-b border-slate-200"

@@ -19,7 +19,8 @@ import pandas as pd
 def _warn_and_is_invalid_hr_po(ride: pd.DataFrame, ride_idx: int, context: str) -> bool:
     """Warn and return True when ride misses hr/po or contains only NaN values."""
     issues: list[str] = []
-    for col in ("hr", "po"):
+    col_miss = ("po", "hr") if context.find("prediction") == -1 else ("hr")
+    for col in col_miss:
         if col not in ride.columns:
             issues.append(f"missing '{col}' column")
             continue
@@ -241,14 +242,31 @@ def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
 
     rides = []
     ride_datetimes = []
+    skipped_files: list[str] = []
     for sortie in sorted(
         [s for s in sorties if ".pkl" in s], key=parse_datetime_from_ride_filename
     ):
         fichier = resolved_dir / sortie
-        ride = pd.read_pickle(fichier)
+        try:
+            ride = pd.read_pickle(fichier)
+        except Exception as exc:
+            skipped_files.append(f"{sortie}: {exc}")
+            warnings.warn(
+                f"Skipping incompatible pickle file {fichier.name}: {exc}",
+                UserWarning,
+            )
+            continue
+
         dt = parse_datetime_from_ride_filename(sortie)
         rides.append(ride)
         ride_datetimes.append(dt)
+
+    if len(rides) == 0:
+        details = "; ".join(skipped_files[:5])
+        raise RuntimeError(
+            f"No readable pickle files found in {resolved_dir}."
+            + (f" Examples: {details}" if details else "")
+        )
 
     rides_feat = add_features_to_rides(rides)
     for ride, dt in zip(rides_feat, ride_datetimes):

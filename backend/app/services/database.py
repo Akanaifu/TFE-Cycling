@@ -214,7 +214,7 @@ def get_users_with_non_bcrypt_hashes(limit: int = 20) -> list[str]:
         SELECT email
         FROM users
         WHERE COALESCE(password_hash, '') = ''
-           OR password_hash NOT LIKE '$2%'
+           OR LEFT(password_hash, 2) <> '$2'
         ORDER BY email ASC
         LIMIT %s
     """

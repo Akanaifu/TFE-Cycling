@@ -83,14 +83,20 @@ export default function PredictionPipelinePage() {
         </p>
         <div className={commonPipelineStyles.redirectButtonContainer}>
           <Link
-            href="/strava"
+            href="/compare-models"
             className={commonPipelineStyles.redirectButtonSecondary}
+          >
+            Comparer deux modèles
+          </Link>
+          <Link
+            href="/strava"
+            className={commonPipelineStyles.redirectButtonSecondary + " ml-2"}
           >
             Ouvrir le pipeline Strava
           </Link>
           <Link
             href="/register"
-            className={commonPipelineStyles.redirectButtonPrimary + " ml-3"}
+            className={commonPipelineStyles.redirectButtonPrimary + " ml-2"}
           >
             Créer un compte
           </Link>

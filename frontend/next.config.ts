@@ -1,5 +1,12 @@
 import type { NextConfig } from "next";
 
+const isDevelopment = process.env.NODE_ENV !== "production";
+const connectSrc = ["'self'", "https:"];
+
+if (isDevelopment) {
+  connectSrc.push("http://localhost:8000", "http://127.0.0.1:8000");
+}
+
 const securityHeaders = [
   {
     key: "Content-Security-Policy",
@@ -11,7 +18,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
       "style-src 'self' 'unsafe-inline'; " +
       "img-src 'self' data: blob: https:; " +
-      "connect-src 'self' https:; " +
+      `connect-src ${connectSrc.join(" ")}; ` +
       "font-src 'self' data: https:; " +
       "form-action 'self'; " +
       "upgrade-insecure-requests",

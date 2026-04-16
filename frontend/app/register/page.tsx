@@ -105,7 +105,7 @@ export default function Register() {
 
         <form onSubmit={handleRegister} className={authPageStyles.form}>
           <div>
-            <label className={commonPipelineStyles.formLabel}>Email</label>
+            <p className={commonPipelineStyles.formLabel}>Email</p>
             <input
               type="email"
               value={email}
@@ -117,9 +117,7 @@ export default function Register() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
-              Mot de passe
-            </label>
+            <p className={commonPipelineStyles.formLabel}>Mot de passe</p>
             <input
               type="password"
               value={password}
@@ -131,9 +129,9 @@ export default function Register() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
+            <p className={commonPipelineStyles.formLabel}>
               Confirmer le mot de passe
-            </label>
+            </p>
             <input
               type="password"
               value={confirmPassword}
@@ -145,9 +143,9 @@ export default function Register() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
+            <p className={commonPipelineStyles.formLabel}>
               Nom d&apos;affichage (optionnel)
-            </label>
+            </p>
             <input
               type="text"
               value={displayName}
