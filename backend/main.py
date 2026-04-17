@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 import re
 import time
-
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+import numpy as np
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -58,7 +58,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -101,6 +101,22 @@ class PipelineRequest(BaseModel):
     selected_target_rides: int | list[int] | None = Field(default=None)
 
 
+class CompareModelsRequest(BaseModel):
+    """Request to compare two models trained on different rides."""
+
+    dir_path: str = Field(..., description="Directory containing PKL rides")
+    train_ride_index_1: int = Field(
+        ..., ge=1, description="1-based index for model 1 training ride"
+    )
+    train_ride_index_2: int = Field(
+        ..., ge=1, description="1-based index for model 2 training ride"
+    )
+    test_ride_index: int = Field(..., ge=1, description="1-based index for test ride")
+    apply_to_all_rides: bool = Field(
+        default=False, description="Apply both models to all rides and compute diffs"
+    )
+
+
 class StravaExchangeCodeRequest(BaseModel):
     """Request payload to exchange Strava OAuth code."""
 
@@ -131,6 +147,38 @@ def _extract_cyclist_from_dir_path(dir_path: str) -> str | None:
     normalized = (dir_path or "").replace("\\", "/")
     match = re.search(r"(cyclist\d+)", normalized)
     return match.group(1) if match else None
+
+
+def _resolve_authorized_cyclist_and_dir(
+    user: dict, requested_path: str
+) -> tuple[str, str]:
+    """Resolve and authorize cyclist from input, then return canonical rides dir.
+
+    This blocks arbitrary tree traversal by ignoring raw path segments and only
+    accepting cyclist names that exist in DB-backed visibility lists.
+    """
+    requested_cyclist = _extract_cyclist_from_dir_path(requested_path)
+    if requested_cyclist is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid cyclist path. Expected a cyclist like 'cyclist0'.",
+        )
+
+    if _is_admin(user):
+        allowed_cyclists = set(database_service.get_all_cyclists_from_rides())
+    else:
+        allowed_cyclists = set(
+            database_service.get_user_allowed_cyclists(str(user["id"]))
+        )
+
+    if requested_cyclist not in allowed_cyclists:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied for requested cyclist",
+        )
+
+    effective_dir = f"../DB/rides/{requested_cyclist}"
+    return requested_cyclist, effective_dir
 
 
 def _client_ip(request: Request) -> str:
@@ -165,6 +213,31 @@ def _is_pkl_diagnostic_enabled() -> bool:
     return _is_truthy_env(os.getenv("ENABLE_PKL_DIAGNOSTIC", ""))
 
 
+def _use_secure_cookie() -> bool:
+    return _is_truthy_env(os.getenv("AUTH_COOKIE_SECURE", "false"))
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key="tfe_access_token",
+        value=token,
+        httponly=True,
+        secure=_use_secure_cookie(),
+        samesite="lax",
+        max_age=60 * 60 * 2,
+        path="/",
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key="tfe_access_token",
+        path="/",
+        samesite="lax",
+        secure=_use_secure_cookie(),
+    )
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     """Root endpoint returning API status."""
@@ -196,7 +269,9 @@ async def db_status(
 
 
 @app.post("/auth/login")
-async def auth_login(payload: AuthLoginRequest, request: Request) -> dict:
+async def auth_login(
+    payload: AuthLoginRequest, request: Request, response: Response
+) -> dict:
     """Authenticate a user and return a JWT access token."""
     _enforce_auth_rate_limit(request, payload.email)
     user = auth_service.authenticate_user(payload.email, payload.password)
@@ -211,6 +286,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request) -> dict:
         email=str(user["email"]),
         role=str(user.get("role", "user")),
     )
+    _set_auth_cookie(response, token)
     return {
         "ok": True,
         "access_token": token,
@@ -225,7 +301,9 @@ async def auth_login(payload: AuthLoginRequest, request: Request) -> dict:
 
 
 @app.post("/auth/register")
-async def auth_register(payload: AuthRegisterRequest, request: Request) -> dict:
+async def auth_register(
+    payload: AuthRegisterRequest, request: Request, response: Response
+) -> dict:
     """Register a new user account."""
     _enforce_auth_rate_limit(request, payload.email)
     email = payload.email.strip().lower()
@@ -267,6 +345,7 @@ async def auth_register(payload: AuthRegisterRequest, request: Request) -> dict:
         email=str(user["email"]),
         role=str(user.get("role", "user")),
     )
+    _set_auth_cookie(response, token)
 
     return {
         "ok": True,
@@ -279,6 +358,13 @@ async def auth_register(payload: AuthRegisterRequest, request: Request) -> dict:
             "role": user.get("role", "user"),
         },
     }
+
+
+@app.post("/auth/logout")
+async def auth_logout(response: Response) -> dict:
+    """Clear authentication cookie."""
+    _clear_auth_cookie(response)
+    return {"ok": True}
 
 
 @app.get("/auth/me")
@@ -482,7 +568,7 @@ async def strava_get_activities(
                 )
 
                 absolute_path.parent.mkdir(parents=True, exist_ok=True)
-                ride_df.to_pickle(absolute_path)
+                notebook_service.write_pickle_secure(ride_df, absolute_path)
 
                 activity_with_path = dict(activity)
                 activity_with_path["file_path"] = relative_path
@@ -524,7 +610,7 @@ async def get_cyclists_list(
     """List all available cyclists."""
     try:
         if _is_admin(current_user):
-            cyclists = notebook_service.list_cyclists()
+            cyclists = database_service.get_all_cyclists_from_rides()
         else:
             cyclists = database_service.get_user_allowed_cyclists(
                 str(current_user["id"])
@@ -534,6 +620,8 @@ async def get_cyclists_list(
             "cyclists": cyclists,
             "n_cyclists": len(cyclists),
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"Failed to list cyclists: {exc}"
@@ -560,6 +648,8 @@ async def get_training_ride(
 
         get_single_ride_fn = getattr(notebook_service, "get_single_ride")
         return get_single_ride_fn(cyclist, ride_index)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"Failed to get ride: {exc}"
@@ -573,18 +663,11 @@ async def list_rides(
 ) -> dict:
     """List available rides in a directory with basic info."""
     try:
-        if not _is_admin(current_user):
-            requested_cyclist = _extract_cyclist_from_dir_path(dir_path)
-            allowed = set(
-                database_service.get_user_allowed_cyclists(str(current_user["id"]))
-            )
-            if requested_cyclist is None or requested_cyclist not in allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied for requested rides directory",
-                )
+        requested_cyclist, effective_dir = _resolve_authorized_cyclist_and_dir(
+            current_user, dir_path
+        )
 
-        rides = notebook_service.extract_donnee_pickle(dir_path)
+        rides = notebook_service.extract_donnee_pickle(effective_dir)
         ride_list = []
         for i, ride in enumerate(rides, start=1):
             datetime_label = ride.attrs.get("ride_datetime_label", "unknown")
@@ -598,10 +681,13 @@ async def list_rides(
             )
         return {
             "ok": True,
-            "dir_path": str(dir_path),
+            "cyclist": requested_cyclist,
+            "dir_path": str(effective_dir),
             "n_rides": len(rides),
             "rides": ride_list,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"Failed to list rides: {exc}"
@@ -615,17 +701,9 @@ async def run_analysis(
 ) -> dict:
     """Execute analysis on rides using specified configuration."""
     try:
-        effective_dir = payload.dir_path
-        if not _is_admin(current_user):
-            requested_cyclist = _extract_cyclist_from_dir_path(payload.dir_path)
-            allowed = set(
-                database_service.get_user_allowed_cyclists(str(current_user["id"]))
-            )
-            if requested_cyclist is None or requested_cyclist not in allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied for requested analysis directory",
-                )
+        _, effective_dir = _resolve_authorized_cyclist_and_dir(
+            current_user, payload.dir_path
+        )
 
         config = notebook_service.AnalysisConfig(
             dir_path=effective_dir,
@@ -638,6 +716,8 @@ async def run_analysis(
             selected_target_rides=payload.selected_target_rides,
         )
         return notebook_service.run_notebook_analysis(config)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -660,17 +740,9 @@ async def run_pipeline(
                    ride_datetime, and prediction columns
     """
     try:
-        effective_dir = payload.dir_path
-        if not _is_admin(current_user):
-            requested_cyclist = _extract_cyclist_from_dir_path(payload.dir_path)
-            allowed = set(
-                database_service.get_user_allowed_cyclists(str(current_user["id"]))
-            )
-            if requested_cyclist is None or requested_cyclist not in allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied for requested pipeline directory",
-                )
+        _, effective_dir = _resolve_authorized_cyclist_and_dir(
+            current_user, payload.dir_path
+        )
 
         rides = notebook_service.extract_donnee_pickle(effective_dir)
         if not rides:
@@ -782,6 +854,232 @@ async def run_pipeline(
         ) from exc
 
 
+@app.post("/pipeline/compare-models-trained")
+async def compare_models_trained(
+    payload: CompareModelsRequest,
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
+    """Compare two models trained on different rides, tested on a third ride.
+
+    Trains model 1 on training_ride_1 and model 2 on training_ride_2,
+    then applies both to test_ride_index. Optionally applies both models to all rides
+    and computes the mean difference in BPM predictions.
+
+    Formula for mean diff: sum(modeleA(t) - modeleB(t)) / nb_points
+    """
+    try:
+        _, effective_dir = _resolve_authorized_cyclist_and_dir(
+            current_user, payload.dir_path
+        )
+
+        # Import prediction functions
+        from app.services.notebook import (
+            prediction_arx_from_selected_ride,
+        )
+
+        # Load all rides
+        rides = notebook_service.extract_donnee_pickle(effective_dir)
+        if not rides:
+            raise ValueError(f"No valid rides found in {effective_dir}")
+
+        n_rides = len(rides)
+        if payload.train_ride_index_1 < 1 or payload.train_ride_index_1 > n_rides:
+            raise ValueError(
+                f"train_ride_index_1 out of range: {payload.train_ride_index_1} (available: 1..{n_rides})"
+            )
+        if payload.train_ride_index_2 < 1 or payload.train_ride_index_2 > n_rides:
+            raise ValueError(
+                f"train_ride_index_2 out of range: {payload.train_ride_index_2} (available: 1..{n_rides})"
+            )
+        if payload.test_ride_index < 0 or payload.test_ride_index > n_rides:
+            raise ValueError(
+                f"test_ride_index out of range: {payload.test_ride_index} (available: 0..{n_rides})"
+            )
+
+        if payload.train_ride_index_1 == payload.train_ride_index_2:
+            raise ValueError(
+                "train_ride_index_1 and train_ride_index_2 must be different"
+            )
+
+        # Train model 1 on ride 1, test on test_ride
+        rides_copy_1 = [r.copy(deep=True) for r in rides]
+        pred_1_all = prediction_arx_from_selected_ride(
+            rides_copy_1,
+            train_ride_index=payload.train_ride_index_1,
+            target_ride_indices=payload.test_ride_index,
+            n_hr_lags=1,
+            ridge_alpha=5,
+            po_lag_start=5,
+            pred_col="model_1_pred",
+            max_nan_ratio=0.10,
+            init_window=5,
+            one_based_index=True,
+        )
+
+        # Train model 2 on ride 2, test on test_ride
+        rides_copy_2 = [r.copy(deep=True) for r in rides]
+        pred_2_all = prediction_arx_from_selected_ride(
+            rides_copy_2,
+            train_ride_index=payload.train_ride_index_2,
+            target_ride_indices=payload.test_ride_index,
+            n_hr_lags=1,
+            ridge_alpha=5,
+            po_lag_start=5,
+            pred_col="model_2_pred",
+            max_nan_ratio=0.10,
+            init_window=5,
+            one_based_index=True,
+        )
+
+        # Get test ride predictions (1-based index means we need index-1 for 0-based array)
+        test_ride_zero_idx = payload.test_ride_index - 1
+        test_ride_1 = pred_1_all[test_ride_zero_idx]
+        test_ride_2 = pred_2_all[test_ride_zero_idx]
+
+        # Extract predictions
+        model1_preds = test_ride_1["model_1_pred"].tolist()
+        model2_preds = test_ride_2["model_2_pred"].tolist()
+
+        # Compute metrics on test ride
+        def compute_metrics(actual, predicted):
+            """Compute RMSE, MAE, R² for predictions."""
+            actual_arr = np.array(actual, dtype=float)
+            pred_arr = np.array(predicted, dtype=float)
+
+            # Mask out NaN values
+            mask = ~(np.isnan(actual_arr) | np.isnan(pred_arr))
+            if not mask.any():
+                return {"rmse": float("nan"), "mae": float("nan"), "r2": float("nan")}
+
+            actual_clean = actual_arr[mask]
+            pred_clean = pred_arr[mask]
+
+            # RMSE
+            rmse = float(np.sqrt(np.mean((actual_clean - pred_clean) ** 2)))
+
+            # MAE
+            mae = float(np.mean(np.abs(actual_clean - pred_clean)))
+
+            # R²
+            ss_res = np.sum((actual_clean - pred_clean) ** 2)
+            ss_tot = np.sum((actual_clean - np.mean(actual_clean)) ** 2)
+            r2 = float(1.0 - (ss_res / ss_tot)) if ss_tot > 0 else float("nan")
+
+            return {"rmse": rmse, "mae": mae, "r2": r2}
+
+        actual_hr = test_ride_1["hr"].tolist()
+        metrics_1 = compute_metrics(actual_hr, model1_preds)
+        metrics_2 = compute_metrics(actual_hr, model2_preds)
+
+        # Prepare ride data response
+        ride_data = {
+            "datetime": test_ride_1.attrs.get("ride_datetime_label", "unknown"),
+            "n_points": int(test_ride_1.shape[0]),
+            "columns": [str(c) for c in test_ride_1.columns.tolist()],
+            "data": test_ride_1.to_dict(orient="records"),
+        }
+
+        # If requested, apply both models to all rides and compute diffs
+        all_rides_diffs = None
+        if payload.apply_to_all_rides:
+            # Train both models on all rides
+            rides_copy_all_1 = [r.copy(deep=True) for r in rides]
+            pred_all_1 = prediction_arx_from_selected_ride(
+                rides_copy_all_1,
+                train_ride_index=payload.train_ride_index_1,
+                target_ride_indices=None,  # Apply to all
+                n_hr_lags=1,
+                ridge_alpha=5,
+                po_lag_start=5,
+                pred_col="model_1_pred",
+                max_nan_ratio=0.10,
+                init_window=5,
+                one_based_index=True,
+            )
+
+            rides_copy_all_2 = [r.copy(deep=True) for r in rides]
+            pred_all_2 = prediction_arx_from_selected_ride(
+                rides_copy_all_2,
+                train_ride_index=payload.train_ride_index_2,
+                target_ride_indices=None,  # Apply to all
+                n_hr_lags=1,
+                ridge_alpha=5,
+                po_lag_start=5,
+                pred_col="model_2_pred",
+                max_nan_ratio=0.10,
+                init_window=5,
+                one_based_index=True,
+            )
+
+            # Compute diffs for each ride
+            all_rides_diffs = []
+            for i, (r1, r2) in enumerate(zip(pred_all_1, pred_all_2), start=1):
+                m1_preds = r1["model_1_pred"].to_numpy(dtype=float)
+                m2_preds = r2["model_2_pred"].to_numpy(dtype=float)
+
+                # Compute mean diff: sum(modeleA - modeleB) / nb_points
+                valid_mask = ~(np.isnan(m1_preds) | np.isnan(m2_preds))
+                if valid_mask.any():
+                    diffs = m1_preds[valid_mask] - m2_preds[valid_mask]
+                    mean_diff = float(np.mean(diffs))
+                else:
+                    mean_diff = 0.0
+
+                all_rides_diffs.append(
+                    {
+                        "ride_index": i,
+                        "datetime": r1.attrs.get("ride_datetime_label", "unknown"),
+                        "n_points": int(r1.shape[0]),
+                        "mean_bpm_diff": mean_diff,
+                        "predictions": [
+                            {
+                                "model_1": (
+                                    float(m1_preds[j])
+                                    if np.isfinite(m1_preds[j])
+                                    else None
+                                ),
+                                "model_2": (
+                                    float(m2_preds[j])
+                                    if np.isfinite(m2_preds[j])
+                                    else None
+                                ),
+                                "diff": (
+                                    float(m1_preds[j] - m2_preds[j])
+                                    if np.isfinite(m1_preds[j])
+                                    and np.isfinite(m2_preds[j])
+                                    else None
+                                ),
+                            }
+                            for j in range(len(m1_preds))
+                        ],
+                    }
+                )
+
+        return {
+            "ok": True,
+            "train_ride_1": payload.train_ride_index_1,
+            "train_ride_2": payload.train_ride_index_2,
+            "test_ride": payload.test_ride_index,
+            "ride_data": ride_data,
+            "model1_predictions": model1_preds,
+            "model2_predictions": model2_preds,
+            "metrics": {
+                "rmse_model1": metrics_1["rmse"],
+                "rmse_model2": metrics_2["rmse"],
+                "mae_model1": metrics_1["mae"],
+                "mae_model2": metrics_2["mae"],
+                "r2_model1": metrics_1["r2"],
+                "r2_model2": metrics_2["r2"],
+            },
+            "all_rides_diffs": all_rides_diffs,
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Model comparison failed: {str(exc)}"
+        ) from exc
+
+
 @app.post("/pkl/test-read")
 async def test_read_pkl(
     payload: PklReadRequest,
@@ -829,7 +1127,7 @@ def _read_pkl_diagnostic(file_path: str) -> dict:
         if pkl_path.suffix.lower() != ".pkl":
             raise HTTPException(status_code=400, detail="Provided file is not a .pkl")
 
-        data = pd.read_pickle(pkl_path)
+        data = notebook_service.load_pickle_secure(pkl_path)
 
         if isinstance(data, pd.DataFrame):
             return {

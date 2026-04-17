@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
+import hmac
 from pathlib import Path
 from typing import Any
 import os
@@ -14,6 +16,104 @@ import warnings
 
 import numpy as np
 import pandas as pd
+
+
+def _is_truthy_env(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_pickle_signing_secret() -> str:
+    return str(os.getenv("PKL_SIGNING_SECRET", "")).strip()
+
+
+def _allow_unsigned_pickles() -> bool:
+    raw = os.getenv("PKL_ALLOW_UNSIGNED_PICKLES", "true")
+    return _is_truthy_env(str(raw))
+
+
+def _max_pickle_size_bytes() -> int:
+    raw = str(os.getenv("PKL_MAX_BYTES", "52428800")).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 52_428_800
+    return max(1_048_576, value)
+
+
+def _pickle_signature_path(file_path: Path) -> Path:
+    return file_path.with_name(f"{file_path.name}.sig")
+
+
+def _sha256_file(file_path: Path) -> str:
+    digest = hashlib.sha256()
+    with file_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _compute_pickle_signature(file_path: Path, secret: str) -> str:
+    file_hash = _sha256_file(file_path)
+    return hmac.new(
+        secret.encode("utf-8"), file_hash.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+def write_pickle_secure(df: pd.DataFrame, file_path: str | os.PathLike) -> None:
+    """Write pickle and optional detached signature sidecar when secret is set."""
+    target = Path(file_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    df.to_pickle(target)
+
+    secret = _get_pickle_signing_secret()
+    if not secret:
+        return
+
+    sig_path = _pickle_signature_path(target)
+    signature = _compute_pickle_signature(target, secret)
+    sig_path.write_text(f"v1:{signature}\n", encoding="utf-8")
+
+
+def load_pickle_secure(file_path: str | os.PathLike) -> Any:
+    """Load pickle with hardening checks (size, symlink, optional signature)."""
+    target = Path(file_path)
+
+    if target.is_symlink():
+        raise RuntimeError(f"Refusing to read symlinked pickle: {target}")
+
+    if not target.exists() or not target.is_file():
+        raise FileNotFoundError(f"Pickle not found: {target}")
+
+    if target.suffix.lower() != ".pkl":
+        raise RuntimeError(f"Unsupported pickle extension: {target.suffix}")
+
+    max_size = _max_pickle_size_bytes()
+    size_bytes = target.stat().st_size
+    if size_bytes > max_size:
+        raise RuntimeError(
+            f"Pickle too large ({size_bytes} bytes), limit is {max_size} bytes"
+        )
+
+    secret = _get_pickle_signing_secret()
+    sig_path = _pickle_signature_path(target)
+    has_signature = sig_path.exists() and sig_path.is_file()
+
+    if secret:
+        if not has_signature:
+            raise RuntimeError(f"Missing signature for pickle: {target.name}")
+        raw = sig_path.read_text(encoding="utf-8").strip()
+        if not raw.startswith("v1:"):
+            raise RuntimeError(f"Invalid signature format for pickle: {target.name}")
+        expected = raw.split(":", 1)[1].strip()
+        actual = _compute_pickle_signature(target, secret)
+        if not hmac.compare_digest(expected, actual):
+            raise RuntimeError(f"Signature mismatch for pickle: {target.name}")
+    elif not _allow_unsigned_pickles() and not has_signature:
+        raise RuntimeError(
+            "Unsigned pickle blocked. Set PKL_ALLOW_UNSIGNED_PICKLES=true for migration."
+        )
+
+    return pd.read_pickle(target)
 
 
 def _warn_and_is_invalid_hr_po(ride: pd.DataFrame, ride_idx: int, context: str) -> bool:
@@ -248,7 +348,7 @@ def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
     ):
         fichier = resolved_dir / sortie
         try:
-            ride = pd.read_pickle(fichier)
+            ride = load_pickle_secure(fichier)
         except Exception as exc:
             skipped_files.append(f"{sortie}: {exc}")
             warnings.warn(

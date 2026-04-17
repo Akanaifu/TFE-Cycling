@@ -49,7 +49,7 @@ type StravaActivity = {
 };
 
 export default function StravaPipelineContent() {
-  const router = useRouter();
+  const { replace } = useRouter();
   const searchParams = useSearchParams();
   const apiUrl = useMemo(
     () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
@@ -80,13 +80,6 @@ export default function StravaPipelineContent() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [oauthState, setOauthState] = useState("");
-
-  const authHeaders = useMemo(() => {
-    if (!authToken) {
-      return {} as Record<string, string>;
-    }
-    return { Authorization: `Bearer ${authToken}` };
-  }, [authToken]);
 
   const extractOAuthParams = (
     value: string,
@@ -131,14 +124,9 @@ export default function StravaPipelineContent() {
   };
 
   useEffect(() => {
-    const stored = localStorage.getItem("tfe_access_token");
-    if (!stored) {
-      router.replace("/login?next=/strava");
-      return;
-    }
-    setAuthToken(stored);
+    setAuthToken("cookie-session");
     setAuthChecked(true);
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -147,7 +135,7 @@ export default function StravaPipelineContent() {
       }
       try {
         const response = await fetch(`${apiUrl}/auth/me`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -155,15 +143,14 @@ export default function StravaPipelineContent() {
         }
         setAuthUser(payload.user as AuthUser);
       } catch {
-        localStorage.removeItem("tfe_access_token");
         setAuthToken(null);
         setAuthUser(null);
-        router.replace("/login?next=/strava");
+        replace("/login?next=/strava");
       }
     };
 
     fetchMe();
-  }, [apiUrl, authHeaders, authToken, router]);
+  }, [apiUrl, authToken, replace]);
 
   useEffect(() => {
     const loadStatus = async () => {
@@ -175,7 +162,7 @@ export default function StravaPipelineContent() {
       setStatusError(null);
       try {
         const response = await fetch(`${apiUrl}/strava/status`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -190,16 +177,22 @@ export default function StravaPipelineContent() {
     };
 
     loadStatus();
-  }, [apiUrl, authHeaders, authToken]);
+  }, [apiUrl, authToken]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("tfe_access_token");
-    setAuthToken(null);
-    setAuthUser(null);
-    setStatus(null);
-    setActivities([]);
-    setExchangeResult(null);
-    router.replace("/login?next=/strava");
+  const handleLogout = async () => {
+    try {
+      await fetch(`${apiUrl}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      setAuthToken(null);
+      setAuthUser(null);
+      setStatus(null);
+      setActivities([]);
+      setExchangeResult(null);
+      replace("/login?next=/strava");
+    }
   };
 
   const handleGenerateAuthUrl = async () => {
@@ -208,7 +201,7 @@ export default function StravaPipelineContent() {
     setAuthUrl(null);
     try {
       const response = await fetch(`${apiUrl}/strava/auth-url`, {
-        headers: authHeaders,
+        credentials: "include",
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -250,9 +243,9 @@ export default function StravaPipelineContent() {
     try {
       const response = await fetch(`${apiUrl}/strava/exchange-code`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders,
         },
         body: JSON.stringify({ code, state }),
       });
@@ -266,7 +259,7 @@ export default function StravaPipelineContent() {
       setOauthCode("");
 
       const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
-        headers: authHeaders,
+        credentials: "include",
       });
       const refreshedPayload = await refreshedStatus.json();
       if (refreshedStatus.ok) {
@@ -299,9 +292,9 @@ export default function StravaPipelineContent() {
       try {
         const response = await fetch(`${apiUrl}/strava/exchange-code`, {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            ...authHeaders,
           },
           body: JSON.stringify({ code: codeFromUrl, state: stateFromUrl }),
         });
@@ -314,14 +307,14 @@ export default function StravaPipelineContent() {
         setExchangeResult(payload.result as ExchangeResult);
 
         const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const refreshedPayload = await refreshedStatus.json();
         if (refreshedStatus.ok) {
           setStatus(refreshedPayload.status as StravaStatus);
         }
 
-        router.replace("/strava");
+        replace("/strava");
       } catch (err) {
         setExchangeError(
           err instanceof Error ? err.message : "Erreur inconnue",
@@ -332,7 +325,7 @@ export default function StravaPipelineContent() {
     };
 
     autoExchangeCode();
-  }, [apiUrl, authHeaders, authToken, router, searchParams]);
+  }, [apiUrl, authToken, replace, searchParams]);
 
   const handlePasteOAuthCode = async () => {
     try {
@@ -366,7 +359,7 @@ export default function StravaPipelineContent() {
       const response = await fetch(
         `${apiUrl}/strava/activities?limit=${selectedActivityLimit}`,
         {
-          headers: authHeaders,
+          credentials: "include",
         },
       );
       const payload = await response.json();

@@ -6,7 +6,6 @@ import { cyclistSelectorStyles } from "./pipelineStyles";
 interface CyclistSelectorProps {
   onSelectCyclist: (cyclist: string) => void;
   selectedCyclist: string;
-  authToken: string | null;
   isAdmin: boolean;
   onMaxRideIndexChange?: (max: number) => void;
 }
@@ -14,7 +13,6 @@ interface CyclistSelectorProps {
 export default function CyclistSelector({
   onSelectCyclist,
   selectedCyclist,
-  authToken,
   isAdmin,
   onMaxRideIndexChange,
 }: CyclistSelectorProps) {
@@ -24,18 +22,13 @@ export default function CyclistSelector({
 
   useEffect(() => {
     const fetchCyclists = async () => {
-      if (!authToken) {
-        setCyclists([]);
-        setError("Connecte-toi pour charger les cyclistes.");
-        return;
-      }
-
       setLoading(true);
       setError(null);
       try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
         const response = await fetch(`${apiUrl}/cyclists/list`, {
-          headers: { Authorization: `Bearer ${authToken}` },
+          credentials: "include",
         });
 
         if (!response.ok) {
@@ -66,21 +59,22 @@ export default function CyclistSelector({
     };
 
     fetchCyclists();
-  }, [authToken, onSelectCyclist, selectedCyclist]);
+  }, [onSelectCyclist, selectedCyclist]);
 
   useEffect(() => {
     const fetchRideCount = async () => {
-      if (!authToken || !selectedCyclist) {
+      if (!selectedCyclist) {
         return;
       }
 
       try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
         const dirPath = `../DB/rides/${selectedCyclist}`;
         const response = await fetch(
           `${apiUrl}/rides/list?dir_path=${encodeURIComponent(dirPath)}`,
           {
-            headers: { Authorization: `Bearer ${authToken}` },
+            credentials: "include",
           },
         );
 
@@ -101,7 +95,7 @@ export default function CyclistSelector({
     };
 
     fetchRideCount();
-  }, [authToken, onMaxRideIndexChange, selectedCyclist]);
+  }, [onMaxRideIndexChange, selectedCyclist]);
 
   return (
     <div className={cyclistSelectorStyles.container}>

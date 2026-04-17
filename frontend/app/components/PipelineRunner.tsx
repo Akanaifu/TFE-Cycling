@@ -52,44 +52,28 @@ export default function PipelineRunner() {
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [maxTrainRideIndex, setMaxTrainRideIndex] = useState(1);
 
-  const authHeaders = useMemo(() => {
-    if (!authToken) {
-      return {} as Record<string, string>;
-    }
-    return { Authorization: `Bearer ${authToken}` };
-  }, [authToken]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("tfe_access_token");
-    if (stored) {
-      setAuthToken(stored);
-    }
-  }, []);
-
   useEffect(() => {
     const fetchMe = async () => {
-      if (!authToken) {
-        setAuthUser(null);
-        return;
-      }
       try {
         const response = await fetch(`${apiUrl}/auth/me`, {
-          headers: authHeaders,
+          credentials: "include",
         });
-        const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload?.detail || `HTTP ${response.status}`);
+          setAuthToken(null);
+          setAuthUser(null);
+          return;
         }
+        const payload = await response.json();
         setAuthUser(payload.user as AuthUser);
+        setAuthToken("cookie-session");
       } catch {
-        localStorage.removeItem("tfe_access_token");
         setAuthToken(null);
         setAuthUser(null);
       }
     };
 
     fetchMe();
-  }, [apiUrl, authHeaders, authToken]);
+  }, [apiUrl]);
 
   const handleLogin = async () => {
     setLoadingLogin(true);
@@ -97,6 +81,7 @@ export default function PipelineRunner() {
     try {
       const response = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -107,9 +92,7 @@ export default function PipelineRunner() {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
 
-      const token = payload.access_token as string;
-      setAuthToken(token);
-      localStorage.setItem("tfe_access_token", token);
+      setAuthToken("cookie-session");
       setAuthUser(payload.user as AuthUser);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "Erreur inconnue");
@@ -118,12 +101,18 @@ export default function PipelineRunner() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("tfe_access_token");
-    setAuthToken(null);
-    setAuthUser(null);
-    setResult(null);
-    setError(null);
+  const handleLogout = async () => {
+    try {
+      await fetch(`${apiUrl}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      setAuthToken(null);
+      setAuthUser(null);
+      setResult(null);
+      setError(null);
+    }
   };
 
   const handleRun = async () => {
@@ -143,9 +132,9 @@ export default function PipelineRunner() {
 
       const response = await fetch(`${apiUrl}/pipeline/run`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders,
         },
         body: JSON.stringify({
           dir_path: dirPath,
@@ -288,7 +277,6 @@ export default function PipelineRunner() {
           <CyclistSelector
             selectedCyclist={selectedCyclist}
             onSelectCyclist={setSelectedCyclist}
-            authToken={authToken}
             isAdmin
             onMaxRideIndexChange={setMaxTrainRideIndex}
           />
@@ -305,7 +293,6 @@ export default function PipelineRunner() {
             <CyclistSelector
               selectedCyclist={selectedCyclist}
               onSelectCyclist={setSelectedCyclist}
-              authToken={authToken}
               isAdmin={false}
               onMaxRideIndexChange={setMaxTrainRideIndex}
             />
@@ -335,7 +322,6 @@ export default function PipelineRunner() {
         <TrainingRidePreview
           cyclist={selectedCyclist}
           rideIndex={selectedTrainRide}
-          authToken={authToken}
         />
       </div>
 

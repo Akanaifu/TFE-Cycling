@@ -13,50 +13,28 @@ export default function PredictionPipelinePage() {
     [],
   );
 
-  const [authToken, setAuthToken] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-
-  const authHeaders = useMemo(() => {
-    if (!authToken) {
-      return {} as Record<string, string>;
-    }
-    return { Authorization: `Bearer ${authToken}` };
-  }, [authToken]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("tfe_access_token");
-    if (!stored) {
-      router.replace("/login?next=/pipeline");
-      return;
-    }
-    setAuthToken(stored);
-    setAuthChecked(true);
-  }, [router]);
 
   useEffect(() => {
     const fetchMe = async () => {
-      if (!authToken) {
-        return;
-      }
       try {
         const response = await fetch(`${apiUrl}/auth/me`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const payload = await response.json();
         if (!response.ok) {
           throw new Error(payload?.detail || `HTTP ${response.status}`);
         }
+        setAuthChecked(true);
       } catch {
-        localStorage.removeItem("tfe_access_token");
-        setAuthToken(null);
         router.replace("/login?next=/pipeline");
       }
     };
 
     fetchMe();
-  }, [apiUrl, authHeaders, authToken, router]);
+  }, [apiUrl, router]);
 
-  if (!authChecked || !authToken) {
+  if (!authChecked) {
     return (
       <div className={commonPipelineStyles.pageContainer}>
         <section className={commonPipelineStyles.card}>

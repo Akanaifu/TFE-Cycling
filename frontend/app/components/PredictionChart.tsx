@@ -7,6 +7,15 @@ interface RideData {
   data: Record<string, unknown>[];
 }
 
+const MODEL_LABELS: Record<string, string> = {
+  pred_hist: "Modèle historique",
+  pred_default: "Modèle défaut",
+  pred_no_fuite: "Modèle sans fuite",
+  pred_arx_selected: "Modèle ARX sélectionné",
+  compare_model_a: "Modèle A",
+  compare_model_b: "Modèle B",
+};
+
 export default function PredictionChart({
   rideData,
   models,
@@ -78,6 +87,8 @@ export default function PredictionChart({
     pred_default: "#10b981",
     pred_no_fuite: "#f59e0b",
     pred_arx_selected: "#8b5cf6",
+    compare_model_a: "#2563eb",
+    compare_model_b: "#059669",
   };
 
   // Generate path string for SVG line
@@ -268,7 +279,9 @@ export default function PredictionChart({
                 borderTop: "2px dashed currentColor",
               }}
             />
-            <span className="text-sm text-gray-700">{model}</span>
+            <span className="text-sm text-gray-700">
+              {MODEL_LABELS[model] || model}
+            </span>
           </div>
         ))}
       </div>
@@ -350,7 +363,7 @@ function StatisticsTable({
                 key={`header-${model}`}
                 className="px-4 py-2 text-right font-semibold"
               >
-                {model}
+                {MODEL_LABELS[model] || model}
               </th>
             ))}
           </tr>
