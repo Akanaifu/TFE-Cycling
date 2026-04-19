@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PipelineRunner from "../components/PipelineRunner";
@@ -59,26 +58,6 @@ export default function PredictionPipelinePage() {
           Se connecte au compte du site, crée un modèle sur une sortie choisie
           et l&apos;applique sur les autres sorties
         </p>
-        <div className={commonPipelineStyles.redirectButtonContainer}>
-          <Link
-            href="/compare-models"
-            className={commonPipelineStyles.redirectButtonSecondary}
-          >
-            Comparer deux modèles
-          </Link>
-          <Link
-            href="/strava"
-            className={commonPipelineStyles.redirectButtonSecondary + " ml-2"}
-          >
-            Ouvrir le pipeline Strava
-          </Link>
-          <Link
-            href="/register"
-            className={commonPipelineStyles.redirectButtonPrimary + " ml-2"}
-          >
-            Créer un compte
-          </Link>
-        </div>
         <div className="mt-8">
           <PipelineRunner />
         </div>

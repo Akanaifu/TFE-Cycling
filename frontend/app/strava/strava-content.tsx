@@ -488,11 +488,11 @@ export default function StravaPipelineContent() {
             )}
             {authUrl && (
               <div className="mt-2 space-y-2">
-                <p className="break-all text-blue-950">{authUrl}</p>
+                <p className="break-all text-[#ffd60a]">{authUrl}</p>
                 <a href={authUrl} className={stravaPageStyles.openLink}>
                   Ouvrir Strava
                 </a>
-                <p className="text-sm text-slate-700">
+                <p className="text-sm text-[#dbeafe]/80">
                   Apres autorisation, Strava te redirige automatiquement sur
                   cette page pour echanger le code.
                 </p>

@@ -359,27 +359,29 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* RMSE Comparison */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <p className="text-sm font-semibold text-gray-600 mb-2">RMSE</p>
+              <div className="rounded-lg border border-[#003566] bg-[#000814]/55 p-4">
+                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">
+                  RMSE
+                </p>
                 <div className="space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide1} (Mod A)
                     </span>
-                    <span className="text-sm font-mono font-bold text-blue-600">
+                    <span className="text-sm font-mono font-bold text-[#ffc300]">
                       {comparisonResult.metrics.rmse_model1.toFixed(3)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide2} (Mod B)
                     </span>
-                    <span className="text-sm font-mono font-bold text-emerald-600">
+                    <span className="text-sm font-mono font-bold text-[#ffd60a]">
                       {comparisonResult.metrics.rmse_model2.toFixed(3)}
                     </span>
                   </div>
-                  <div className="pt-2 border-t mt-2">
-                    <span className="text-xs text-gray-500">
+                  <div className="mt-2 border-t border-[#003566] pt-2">
+                    <span className="text-xs text-[#9fb4d2]">
                       Diff:{" "}
                       {(
                         comparisonResult.metrics.rmse_model1 -
@@ -391,27 +393,27 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
               </div>
 
               {/* MAE Comparison */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <p className="text-sm font-semibold text-gray-600 mb-2">MAE</p>
+              <div className="rounded-lg border border-[#003566] bg-[#000814]/55 p-4">
+                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">MAE</p>
                 <div className="space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide1} (Mod A)
                     </span>
-                    <span className="text-sm font-mono font-bold text-blue-600">
+                    <span className="text-sm font-mono font-bold text-[#ffc300]">
                       {comparisonResult.metrics.mae_model1.toFixed(3)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide2} (Mod B)
                     </span>
-                    <span className="text-sm font-mono font-bold text-emerald-600">
+                    <span className="text-sm font-mono font-bold text-[#ffd60a]">
                       {comparisonResult.metrics.mae_model2.toFixed(3)}
                     </span>
                   </div>
-                  <div className="pt-2 border-t mt-2">
-                    <span className="text-xs text-gray-500">
+                  <div className="mt-2 border-t border-[#003566] pt-2">
+                    <span className="text-xs text-[#9fb4d2]">
                       Diff:{" "}
                       {(
                         comparisonResult.metrics.mae_model1 -
@@ -423,27 +425,27 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
               </div>
 
               {/* R² Comparison */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <p className="text-sm font-semibold text-gray-600 mb-2">R²</p>
+              <div className="rounded-lg border border-[#003566] bg-[#000814]/55 p-4">
+                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">R²</p>
                 <div className="space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide1} (Mod A)
                     </span>
-                    <span className="text-sm font-mono font-bold text-blue-600">
+                    <span className="text-sm font-mono font-bold text-[#ffc300]">
                       {comparisonResult.metrics.r2_model1.toFixed(3)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide2} (Mod B)
                     </span>
-                    <span className="text-sm font-mono font-bold text-emerald-600">
+                    <span className="text-sm font-mono font-bold text-[#ffd60a]">
                       {comparisonResult.metrics.r2_model2.toFixed(3)}
                     </span>
                   </div>
-                  <div className="pt-2 border-t mt-2">
-                    <span className="text-xs text-gray-500">
+                  <div className="mt-2 border-t border-[#003566] pt-2">
+                    <span className="text-xs text-[#9fb4d2]">
                       Diff:{" "}
                       {(
                         comparisonResult.metrics.r2_model1 -
@@ -469,8 +471,8 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                   onClick={() => setModelDisplay("both")}
                   className={`px-3 py-1.5 text-sm font-semibold rounded transition-colors ${
                     modelDisplay === "both"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      ? "bg-[#ffc300] text-[#000814]"
+                      : "bg-[#003566] text-[#fff8d6] hover:bg-[#00467f]"
                   }`}
                 >
                   Tous les deux
@@ -480,8 +482,8 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                   onClick={() => setModelDisplay("A")}
                   className={`px-3 py-1.5 text-sm font-semibold rounded transition-colors ${
                     modelDisplay === "A"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      ? "bg-[#ffc300] text-[#000814]"
+                      : "bg-[#003566] text-[#fff8d6] hover:bg-[#00467f]"
                   }`}
                 >
                   Modèle A
@@ -491,8 +493,8 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                   onClick={() => setModelDisplay("B")}
                   className={`px-3 py-1.5 text-sm font-semibold rounded transition-colors ${
                     modelDisplay === "B"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      ? "bg-[#ffc300] text-[#000814]"
+                      : "bg-[#003566] text-[#fff8d6] hover:bg-[#00467f]"
                   }`}
                 >
                   Modèle B
@@ -512,8 +514,8 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                 Différence de BPM entre les modèles (Sortie de test #
                 {selectedTestRide})
               </h2>
-              <div className="bg-white rounded-lg shadow p-6">
-                <svg width={800} height={300} className="bg-white">
+              <div className="rounded-2xl border border-[#003566] bg-[#000814]/55 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)]">
+                <svg width={800} height={300} className="bg-transparent">
                   <title>Diff BPM: Model A - Model B</title>
                   <defs>
                     <clipPath id="diff-clip">
@@ -529,7 +531,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                       y1={30}
                       x2={60 + t * 740}
                       y2={270}
-                      stroke="#e5e7eb"
+                      stroke="#003566"
                       strokeWidth="1"
                     />
                   ))}
@@ -540,7 +542,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                       y1={30 + (1 - t) * 240}
                       x2={800}
                       y2={30 + (1 - t) * 240}
-                      stroke="#e5e7eb"
+                      stroke="#003566"
                       strokeWidth="1"
                     />
                   ))}
@@ -551,7 +553,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                     y1={30}
                     x2={60}
                     y2={270}
-                    stroke="#000"
+                    stroke="#fff8d6"
                     strokeWidth="2"
                   />
                   <line
@@ -559,7 +561,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                     y1={270}
                     x2={800}
                     y2={270}
-                    stroke="#000"
+                    stroke="#fff8d6"
                     strokeWidth="2"
                   />
 
@@ -612,7 +614,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             x={50}
                             y={tick.y + 4}
                             textAnchor="end"
-                            className="text-xs text-gray-600"
+                            className="text-xs text-[#9fb4d2]"
                           >
                             {tick.value.toFixed(1)}
                           </text>
@@ -621,7 +623,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                         <path
                           d={path}
                           fill="none"
-                          stroke="#8b5cf6"
+                          stroke="#ffc300"
                           strokeWidth="2"
                           clipPath="url(#diff-clip)"
                         />
@@ -631,7 +633,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y1={zeroY}
                             x2={800}
                             y2={zeroY}
-                            stroke="#ccc"
+                            stroke="#9fb4d2"
                             strokeWidth="1"
                             strokeDasharray="5,5"
                           />
@@ -665,8 +667,8 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                   Moyenne des différences : (Modèle A - Modèle B) / nombre de
                   points
                 </p>
-                <div className="bg-white rounded-lg shadow p-6">
-                  <svg width={900} height={400} className="bg-white">
+                <div className="rounded-2xl border border-[#003566] bg-[#000814]/55 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)]">
+                  <svg width={900} height={400} className="bg-transparent">
                     <title>Diff BPM moyennes par sortie</title>
                     {(() => {
                       const rides = allRidesDiffs;
@@ -718,7 +720,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                               y1={tick.y}
                               x2={825}
                               y2={tick.y}
-                              stroke="#e5e7eb"
+                              stroke="#003566"
                               strokeWidth="1"
                             />
                           ))}
@@ -728,7 +730,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y1={50}
                             x2={75}
                             y2={350}
-                            stroke="#000"
+                            stroke="#fff8d6"
                             strokeWidth="2"
                           />
                           <line
@@ -736,7 +738,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y1={350}
                             x2={825}
                             y2={350}
-                            stroke="#000"
+                            stroke="#fff8d6"
                             strokeWidth="2"
                           />
 
@@ -747,7 +749,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                               x={65}
                               y={tick.y + 4}
                               textAnchor="end"
-                              className="text-xs text-gray-600"
+                              className="text-xs text-[#9fb4d2]"
                             >
                               {tick.value.toFixed(1)}
                             </text>
@@ -757,7 +759,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                           <path
                             d={linePath}
                             fill="none"
-                            stroke="#2563eb"
+                            stroke="#ffc300"
                             strokeWidth="2.5"
                           />
 
@@ -767,11 +769,11 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             const y = scaleY(ride.mean_bpm_diff);
                             return (
                               <g key={`point-${ride.ride_index}`}>
-                                <circle cx={x} cy={y} r={4} fill="#1d4ed8" />
+                                <circle cx={x} cy={y} r={4} fill="#ffd60a" />
                                 <text
                                   x={x + 6}
                                   y={y - 6}
-                                  className="text-xs font-semibold fill-blue-700"
+                                  className="text-xs font-semibold fill-[#fff8d6]"
                                 >
                                   {ride.mean_bpm_diff.toFixed(2)}
                                 </text>
@@ -786,7 +788,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                               x={tick.x}
                               y={366}
                               textAnchor="middle"
-                              className="text-xs text-gray-600"
+                              className="text-xs text-[#9fb4d2]"
                             >
                               {tick.value}
                             </text>
@@ -797,7 +799,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             x={450}
                             y={380}
                             textAnchor="middle"
-                            className="text-xs font-semibold"
+                            className="text-xs font-semibold fill-[#fff8d6]"
                           >
                             Numéro de sortie
                           </text>
@@ -806,7 +808,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y={200}
                             textAnchor="middle"
                             transform="rotate(-90 20 200)"
-                            className="text-xs font-semibold"
+                            className="text-xs font-semibold fill-[#fff8d6]"
                           >
                             Valeur BPM
                           </text>

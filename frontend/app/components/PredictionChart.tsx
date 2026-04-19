@@ -82,13 +82,13 @@ export default function PredictionChart({
 
   // Colors for different models
   const colors: Record<string, string> = {
-    actual: "#ef4444",
-    pred_hist: "#3b82f6",
-    pred_default: "#10b981",
+    actual: "#ad2831",
+    pred_hist: "#640d14",
+    pred_default: "#800e13",
     pred_no_fuite: "#f59e0b",
-    pred_arx_selected: "#8b5cf6",
-    compare_model_a: "#2563eb",
-    compare_model_b: "#059669",
+    pred_arx_selected: "#38040e",
+    compare_model_a: "#ad2831",
+    compare_model_b: "#640d14",
   };
 
   // Generate path string for SVG line
@@ -117,13 +117,13 @@ export default function PredictionChart({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">
+    <div className="rounded-2xl border border-white/10 bg-[#fff7f4] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.18)]">
+      <h3 className="mb-4 text-lg font-semibold text-[#250902]">
         Fréquence Cardiaque - Prédictions vs Réalité
       </h3>
 
       <div className="overflow-x-auto">
-        <svg width={chartWidth} height={chartHeight} className="bg-white">
+        <svg width={chartWidth} height={chartHeight} className="bg-transparent">
           <title>Frequence cardiaque: predictions vs realite</title>
           <defs>
             <clipPath id="chart-clip">
@@ -146,7 +146,7 @@ export default function PredictionChart({
                 y1={padding}
                 x2={x}
                 y2={padding + innerHeight}
-                stroke="#e5e7eb"
+                stroke="#f0d3cf"
                 strokeWidth="1"
               />
             );
@@ -161,7 +161,7 @@ export default function PredictionChart({
                 y1={y}
                 x2={padding + innerWidth}
                 y2={y}
-                stroke="#e5e7eb"
+                stroke="#f0d3cf"
                 strokeWidth="1"
               />
             );
@@ -173,7 +173,7 @@ export default function PredictionChart({
             y1={padding}
             x2={padding}
             y2={padding + innerHeight}
-            stroke="#000"
+            stroke="#250902"
             strokeWidth="2"
           />
           <line
@@ -181,7 +181,7 @@ export default function PredictionChart({
             y1={padding + innerHeight}
             x2={padding + innerWidth}
             y2={padding + innerHeight}
-            stroke="#000"
+            stroke="#250902"
             strokeWidth="2"
           />
 
@@ -214,7 +214,7 @@ export default function PredictionChart({
                 x={x}
                 y={padding + innerHeight + 20}
                 textAnchor="middle"
-                className="text-xs text-gray-600"
+                className="text-xs text-[#7c5a5d]"
               >
                 {time.toFixed(1)}
               </text>
@@ -230,7 +230,7 @@ export default function PredictionChart({
                 x={padding - 10}
                 y={y + 4}
                 textAnchor="end"
-                className="text-xs text-gray-600"
+                className="text-xs text-[#7c5a5d]"
               >
                 {hr.toFixed(0)}
               </text>
