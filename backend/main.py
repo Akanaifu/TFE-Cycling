@@ -122,7 +122,7 @@ def _extract_cyclist_from_dir_path(dir_path: str) -> str | None:
     return match.group(1) if match else None
 
 
-@app.get("/")
+@app.get("/api")
 async def root() -> dict[str, str]:
     """Root endpoint returning API status."""
     return {"message": "TFE Cycling backend is running"}
