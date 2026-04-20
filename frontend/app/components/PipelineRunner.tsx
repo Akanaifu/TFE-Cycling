@@ -421,77 +421,10 @@ export default function PipelineRunner() {
                 rideData={currentRide}
                 models={result.models_computed}
               />
-
-              {/* Data Table */}
-              <div className={commonPipelineStyles.card}>
-                <h3 className={predictionPageStyles.tableSectionTitle}>
-                  Données détaillées
-                </h3>
-                <DataTable
-                  rideData={currentRide}
-                  models={result.models_computed}
-                />
-              </div>
             </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function DataTable({
-  rideData,
-  models,
-}: {
-  rideData: RideData;
-  models: string[];
-}) {
-  const displayColumns = ["t", "t_min", "po", "hr", ...models];
-  const filteredColumns = displayColumns.filter((col) =>
-    rideData.columns.includes(col),
-  );
-
-  // Show every nth row to keep table manageable
-  const step = Math.ceil(rideData.data.length / 50);
-  const displayedData = rideData.data.filter((_, i) => i % step === 0);
-
-  return (
-    <div className={predictionPageStyles.tableWrapper}>
-      <table className={predictionPageStyles.table}>
-        <thead>
-          <tr className={predictionPageStyles.tableHeadRow}>
-            {filteredColumns.map((col) => (
-              <th key={col} className={predictionPageStyles.tableHeaderCell}>
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {displayedData.map((row) => {
-            const rowKey = `${String(row.t ?? row.t_min ?? row.datetime ?? "row")}-${String(row.hr ?? "")}-${String(row.po ?? "")}`;
-            return (
-              <tr key={rowKey} className={predictionPageStyles.tableRow}>
-                {filteredColumns.map((col) => (
-                  <td
-                    key={`${rowKey}-${col}`}
-                    className={predictionPageStyles.tableCell}
-                  >
-                    {typeof row[col] === "number"
-                      ? row[col].toFixed(2)
-                      : String(row[col] ?? "")}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <p className={predictionPageStyles.tableFooter}>
-        Affichage de {displayedData.length} points sur {rideData.data.length}
-        (tous les {step} points)
-      </p>
     </div>
   );
 }

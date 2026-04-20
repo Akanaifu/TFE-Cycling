@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from datetime import datetime, timezone
+import logging
 import os
 from pathlib import Path
 import re
@@ -37,6 +38,9 @@ import app.services.strava as strava_service
 
 
 app = FastAPI(title="TFE Cycling API", version="0.1.0")
+
+
+logger = logging.getLogger(__name__)
 
 
 AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
@@ -229,7 +233,28 @@ def _is_pkl_diagnostic_enabled() -> bool:
 
 
 def _use_secure_cookie() -> bool:
-    return _is_truthy_env(os.getenv("AUTH_COOKIE_SECURE", "false"))
+    # In production, Secure cookies must be enabled by default.
+    explicit = os.getenv("AUTH_COOKIE_SECURE", "").strip()
+    if explicit:
+        return _is_truthy_env(explicit)
+
+    node_env = os.getenv("NODE_ENV", "").strip().lower()
+    if node_env in {"development", "dev", "local"}:
+        return False
+
+    return True
+
+
+def _trust_forwarded_headers() -> bool:
+    return _is_truthy_env(os.getenv("TRUST_FORWARDED_HEADERS", "false"))
+
+
+def _client_ip(request: Request) -> str:
+    if _trust_forwarded_headers():
+        forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+        if forwarded_for:
+            return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -387,8 +412,6 @@ async def auth_login(
     _set_auth_cookie(response, token)
     return {
         "ok": True,
-        "access_token": token,
-        "token_type": "bearer",
         "user": {
             "id": str(user["id"]),
             "email": str(user["email"]),
@@ -447,8 +470,6 @@ async def auth_register(
 
     return {
         "ok": True,
-        "access_token": token,
-        "token_type": "bearer",
         "user": {
             "id": str(user["id"]),
             "email": str(user["email"]),
@@ -516,8 +537,10 @@ async def strava_auth_url(
         url = strava_service.build_authorization_url(state=oauth_state)
         return {"ok": True, "auth_url": url, "oauth_state": oauth_state}
     except Exception as exc:
+        logger.exception("Unable to build Strava auth URL")
         raise HTTPException(
-            status_code=400, detail=f"Unable to build Strava auth URL: {exc}"
+            status_code=400,
+            detail="Unable to build Strava auth URL.",
         ) from exc
 
 
@@ -570,8 +593,10 @@ async def strava_exchange_code(
             },
         }
     except Exception as exc:
+        logger.exception("Unable to exchange Strava code")
         raise HTTPException(
-            status_code=400, detail=f"Unable to exchange Strava code: {exc}"
+            status_code=400,
+            detail="Unable to exchange Strava code.",
         ) from exc
 
 
@@ -696,8 +721,10 @@ async def strava_get_activities(
             "failed_count": failed_activities,
         }
     except Exception as exc:
+        logger.exception("Unable to fetch Strava activities")
         raise HTTPException(
-            status_code=400, detail=f"Unable to fetch Strava activities: {exc}"
+            status_code=400,
+            detail="Unable to fetch Strava activities.",
         ) from exc
 
 
@@ -1031,8 +1058,10 @@ async def run_pipeline(
         }
 
     except Exception as exc:
+        logger.exception("Pipeline run failed")
         raise HTTPException(
-            status_code=400, detail=f"Pipeline failed: {str(exc)}"
+            status_code=400,
+            detail="Pipeline failed.",
         ) from exc
 
 

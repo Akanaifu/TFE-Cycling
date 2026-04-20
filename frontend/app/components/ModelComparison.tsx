@@ -61,6 +61,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
   const [maxTrainRideIndex, setMaxTrainRideIndex] = useState(1);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [modelDisplay, setModelDisplay] = useState<"both" | "A" | "B">("both");
+  const [previewModel, setPreviewModel] = useState<"A" | "B">("A");
   const [applyToAllRides, setApplyToAllRides] = useState(false);
   const [allRidesDiffs, setAllRidesDiffs] = useState<Array<{
     ride_index: number;
@@ -103,6 +104,18 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
       })),
     };
   }, [comparisonResult]);
+
+  const getFiniteExtrema = (values: number[]) => {
+    const finiteValues = values.filter((value) => Number.isFinite(value));
+    if (finiteValues.length === 0) {
+      return { min: null as number | null, max: null as number | null };
+    }
+
+    return {
+      min: Math.min(...finiteValues),
+      max: Math.max(...finiteValues),
+    };
+  };
 
   const isAdmin = authUser?.role === "admin";
 
@@ -343,10 +356,43 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
 
       {/* Training Ride Preview */}
       {selectedCyclist && (
-        <TrainingRidePreview
-          cyclist={selectedCyclist}
-          rideIndex={selectedTrainRide1}
-        />
+        <div className={commonPipelineStyles.card}>
+          <h3 className={commonPipelineStyles.subSectionTitle}>
+            Apercu de la sortie d&apos;entrainement
+          </h3>
+          <div className="mt-3 mb-4 flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-[#dbeafe]/90">
+              <input
+                type="radio"
+                name="preview-model"
+                value="A"
+                checked={previewModel === "A"}
+                onChange={() => setPreviewModel("A")}
+                className="h-4 w-4"
+              />
+              Modele A (sortie {selectedTrainRide1})
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#dbeafe]/90">
+              <input
+                type="radio"
+                name="preview-model"
+                value="B"
+                checked={previewModel === "B"}
+                onChange={() => setPreviewModel("B")}
+                className="h-4 w-4"
+              />
+              Modele B (sortie {selectedTrainRide2})
+            </label>
+          </div>
+
+          <TrainingRidePreview
+            cyclist={selectedCyclist}
+            rideIndex={
+              previewModel === "A" ? selectedTrainRide1 : selectedTrainRide2
+            }
+            modelLabel={previewModel}
+          />
+        </div>
       )}
 
       {/* Comparison Results */}
@@ -395,14 +441,23 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
 
               {/* MAE Comparison */}
               <div className="rounded-lg border border-[#003566] bg-[#000814]/55 p-4">
-                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">MAE</p>
+                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">
+                  FC min (bpm)
+                </p>
                 <div className="space-y-1">
                   <div className="flex justify-between">
                     <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide1} (Mod A)
                     </span>
                     <span className="text-sm font-mono font-bold text-[#ffc300]">
-                      {comparisonResult.metrics.mae_model1.toFixed(3)}
+                      {(() => {
+                        const extrema = getFiniteExtrema(
+                          comparisonResult.model1_predictions,
+                        );
+                        return extrema.min !== null
+                          ? extrema.min.toFixed(1)
+                          : "-";
+                      })()}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -410,16 +465,31 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                       Sortie {selectedTrainRide2} (Mod B)
                     </span>
                     <span className="text-sm font-mono font-bold text-[#ffd60a]">
-                      {comparisonResult.metrics.mae_model2.toFixed(3)}
+                      {(() => {
+                        const extrema = getFiniteExtrema(
+                          comparisonResult.model2_predictions,
+                        );
+                        return extrema.min !== null
+                          ? extrema.min.toFixed(1)
+                          : "-";
+                      })()}
                     </span>
                   </div>
                   <div className="mt-2 border-t border-[#003566] pt-2">
                     <span className="text-xs text-[#9fb4d2]">
                       Diff:{" "}
-                      {(
-                        comparisonResult.metrics.mae_model1 -
-                        comparisonResult.metrics.mae_model2
-                      ).toFixed(3)}
+                      {(() => {
+                        const modelA = getFiniteExtrema(
+                          comparisonResult.model1_predictions,
+                        );
+                        const modelB = getFiniteExtrema(
+                          comparisonResult.model2_predictions,
+                        );
+                        if (modelA.min === null || modelB.min === null) {
+                          return "-";
+                        }
+                        return (modelA.min - modelB.min).toFixed(1);
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -427,14 +497,23 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
 
               {/* R² Comparison */}
               <div className="rounded-lg border border-[#003566] bg-[#000814]/55 p-4">
-                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">R²</p>
+                <p className="mb-2 text-sm font-semibold text-[#fff8d6]">
+                  FC max (bpm)
+                </p>
                 <div className="space-y-1">
                   <div className="flex justify-between">
                     <span className="text-xs text-[#dbeafe]/80">
                       Sortie {selectedTrainRide1} (Mod A)
                     </span>
                     <span className="text-sm font-mono font-bold text-[#ffc300]">
-                      {comparisonResult.metrics.r2_model1.toFixed(3)}
+                      {(() => {
+                        const extrema = getFiniteExtrema(
+                          comparisonResult.model1_predictions,
+                        );
+                        return extrema.max !== null
+                          ? extrema.max.toFixed(1)
+                          : "-";
+                      })()}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -442,16 +521,31 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                       Sortie {selectedTrainRide2} (Mod B)
                     </span>
                     <span className="text-sm font-mono font-bold text-[#ffd60a]">
-                      {comparisonResult.metrics.r2_model2.toFixed(3)}
+                      {(() => {
+                        const extrema = getFiniteExtrema(
+                          comparisonResult.model2_predictions,
+                        );
+                        return extrema.max !== null
+                          ? extrema.max.toFixed(1)
+                          : "-";
+                      })()}
                     </span>
                   </div>
                   <div className="mt-2 border-t border-[#003566] pt-2">
                     <span className="text-xs text-[#9fb4d2]">
                       Diff:{" "}
-                      {(
-                        comparisonResult.metrics.r2_model1 -
-                        comparisonResult.metrics.r2_model2
-                      ).toFixed(3)}
+                      {(() => {
+                        const modelA = getFiniteExtrema(
+                          comparisonResult.model1_predictions,
+                        );
+                        const modelB = getFiniteExtrema(
+                          comparisonResult.model2_predictions,
+                        );
+                        if (modelA.max === null || modelB.max === null) {
+                          return "-";
+                        }
+                        return (modelA.max - modelB.max).toFixed(1);
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -880,91 +974,6 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                 </div>
               </div>
             )}
-
-          {/* Data Table */}
-          <div className={commonPipelineStyles.card}>
-            <h2 className={commonPipelineStyles.sectionTitle}>
-              Valeurs Détaillées
-            </h2>
-
-            <div className={predictionPageStyles.tableWrapper}>
-              <table className={predictionPageStyles.table}>
-                <thead>
-                  <tr className={predictionPageStyles.tableHeadRow}>
-                    <th className={predictionPageStyles.tableHeaderCell}>
-                      Index
-                    </th>
-                    <th className={predictionPageStyles.tableHeaderCell}>
-                      Réel
-                    </th>
-                    {(modelDisplay === "both" || modelDisplay === "A") && (
-                      <th className={predictionPageStyles.tableHeaderCell}>
-                        Mod A (sortie {selectedTrainRide1})
-                      </th>
-                    )}
-                    {(modelDisplay === "both" || modelDisplay === "B") && (
-                      <th className={predictionPageStyles.tableHeaderCell}>
-                        Mod B (sortie {selectedTrainRide2})
-                      </th>
-                    )}
-                    {modelDisplay === "both" && (
-                      <th className={predictionPageStyles.tableHeaderCell}>
-                        Diff
-                      </th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparisonResult.ride_data.data
-                    .slice(0, 50)
-                    .map((point: Record<string, unknown>, idx: number) => {
-                      const actual =
-                        (point.heart_rate as number) ||
-                        (point.hr as number) ||
-                        0;
-                      const pred1 =
-                        comparisonResult.model1_predictions[idx] || 0;
-                      const pred2 =
-                        comparisonResult.model2_predictions[idx] || 0;
-                      const rowKey = `${String(point.t_min ?? idx)}-${pred1}-${pred2}`;
-                      return (
-                        <tr
-                          key={rowKey}
-                          className={predictionPageStyles.tableRow}
-                        >
-                          <td className={predictionPageStyles.tableCell}>
-                            {idx}
-                          </td>
-                          <td className={predictionPageStyles.tableCell}>
-                            {actual.toFixed(2)}
-                          </td>
-                          {(modelDisplay === "both" ||
-                            modelDisplay === "A") && (
-                            <td className={predictionPageStyles.tableCell}>
-                              {pred1.toFixed(2)}
-                            </td>
-                          )}
-                          {(modelDisplay === "both" ||
-                            modelDisplay === "B") && (
-                            <td className={predictionPageStyles.tableCell}>
-                              {pred2.toFixed(2)}
-                            </td>
-                          )}
-                          {modelDisplay === "both" && (
-                            <td className={predictionPageStyles.tableCell}>
-                              {(pred1 - pred2).toFixed(2)}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-              <p className={predictionPageStyles.tableFooter}>
-                Affichage des 50 premières lignes
-              </p>
-            </div>
-          </div>
         </div>
       )}
     </div>

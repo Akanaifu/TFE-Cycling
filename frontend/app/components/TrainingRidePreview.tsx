@@ -29,11 +29,13 @@ interface TrainingRideRow {
 interface TrainingRidePreviewProps {
   cyclist: string;
   rideIndex: number;
+  modelLabel?: "A" | "B";
 }
 
 export default function TrainingRidePreview({
   cyclist,
   rideIndex,
+  modelLabel,
 }: TrainingRidePreviewProps) {
   const [rideData, setRideData] = useState<TrainingRideData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +91,7 @@ export default function TrainingRidePreview({
   return (
     <div className="rounded-2xl border border-white/10 bg-[#fff7f4] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.18)]">
       <h3 className="mb-4 text-xl font-bold text-[#250902]">
-        📊 Ride d&apos;entraînement - Modèle
+        📊 Ride d&apos;entraînement - Modèle {modelLabel ?? "A"}
       </h3>
 
       {loading && (

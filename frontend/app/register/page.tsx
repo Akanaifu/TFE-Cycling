@@ -57,14 +57,12 @@ export default function Register() {
         return;
       }
 
-      const data = await response.json();
-      if (data.access_token) {
-        setSuccess(true);
-        // Redirect after 1 second
-        setTimeout(() => {
-          window.location.href = "/strava";
-        }, 1000);
-      }
+      await response.json();
+      setSuccess(true);
+      // Redirect after 1 second
+      setTimeout(() => {
+        window.location.href = "/strava";
+      }, 1000);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Erreur lors de l'enregistrement",
