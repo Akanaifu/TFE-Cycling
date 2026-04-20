@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
-const connectSrc = ["'self'", "https:"];
+const connectSrc = ["'self'", "https:", "data:", "blob:"];
 
 if (isDevelopment) {
   connectSrc.push("http://localhost:8000", "http://127.0.0.1:8000");

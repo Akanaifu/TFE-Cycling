@@ -10,14 +10,27 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
+import tempfile
 import time
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from pydantic import BaseModel, Field
 import app.services.auth as auth_service
 import app.services.database as database_service
+import app.services.fit_import as fit_import_service
 import app.services.notebook as notebook_service
 from app.services.security import decrypt_secret_fernet, encrypt_secret_fernet
 import app.services.strava as strava_service
@@ -29,6 +42,8 @@ app = FastAPI(title="TFE Cycling API", version="0.1.0")
 AUTH_RATE_LIMIT_WINDOW_SECONDS = 300
 AUTH_RATE_LIMIT_MAX_ATTEMPTS = 8
 _auth_attempts: dict[str, deque[float]] = defaultdict(deque)
+MAX_FIT_UPLOAD_FILES = 20
+MAX_FIT_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @app.on_event("startup")
@@ -236,6 +251,89 @@ def _clear_auth_cookie(response: Response) -> None:
         samesite="lax",
         secure=_use_secure_cookie(),
     )
+
+
+def _resolve_target_cyclist_for_fit_upload(
+    user: dict, cyclist_from_form: str | None
+) -> tuple[str, Path]:
+    """Resolve upload target cyclist and enforce role-based access controls."""
+    if _is_admin(user):
+        cyclist_name = str(cyclist_from_form or "").strip()
+        if not cyclist_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Admin must provide target cyclist.",
+            )
+        requested_cyclist, effective_dir = _resolve_authorized_cyclist_and_dir(
+            user, f"../DB/rides/{cyclist_name}"
+        )
+    else:
+        allowed = database_service.get_user_allowed_cyclists(str(user["id"]))
+        if len(allowed) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "No cyclist folder is linked to your account yet. "
+                    "Ask an admin to assign one first."
+                ),
+            )
+        requested_cyclist = allowed[0]
+        effective_dir = f"../DB/rides/{requested_cyclist}"
+
+    backend_dir = Path(__file__).resolve().parent
+    target_dir = (backend_dir / effective_dir).resolve()
+    allowed_root = (backend_dir.parent / "DB" / "rides").resolve()
+
+    try:
+        target_dir.relative_to(allowed_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only files under DB/rides are allowed",
+        ) from exc
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return requested_cyclist, target_dir
+
+
+async def _save_uploaded_fit_to_temp(upload: UploadFile, max_bytes: int) -> Path:
+    """Persist uploaded FIT stream to a temp file with size enforcement."""
+    temp_handle = tempfile.NamedTemporaryFile(suffix=".fit", delete=False)
+    temp_path = Path(temp_handle.name)
+    size = 0
+
+    try:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large (> {max_bytes} bytes)",
+                )
+            temp_handle.write(chunk)
+
+        temp_handle.flush()
+        temp_handle.close()
+        return temp_path
+    except Exception:
+        try:
+            temp_handle.close()
+        except Exception:
+            pass
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            await upload.close()
+        except Exception:
+            pass
 
 
 @app.get("/")
@@ -692,6 +790,90 @@ async def list_rides(
         raise HTTPException(
             status_code=400, detail=f"Failed to list rides: {exc}"
         ) from exc
+
+
+@app.post("/rides/import-fit")
+async def import_fit_files(
+    files: list[UploadFile] = File(..., description="One or many .fit files"),
+    cyclist: str | None = Form(default=None),
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
+    """Import one or many FIT files and save canonical PKL files under DB/rides."""
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files uploaded.",
+        )
+
+    if len(files) > MAX_FIT_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Too many files. Maximum is {MAX_FIT_UPLOAD_FILES}.",
+        )
+
+    target_cyclist, target_dir = _resolve_target_cyclist_for_fit_upload(
+        current_user, cyclist
+    )
+
+    saved: list[dict[str, str | int]] = []
+    skipped: list[dict[str, str]] = []
+
+    for upload in files:
+        original_name = str(upload.filename or "upload.fit").strip()
+        if not original_name.lower().endswith(".fit"):
+            skipped.append(
+                {
+                    "file": original_name,
+                    "reason": "Only .fit files are accepted.",
+                }
+            )
+            continue
+
+        tmp_path: Path | None = None
+        try:
+            tmp_path = await _save_uploaded_fit_to_temp(
+                upload, max_bytes=MAX_FIT_UPLOAD_BYTES
+            )
+            converted = fit_import_service.convert_fit_to_project_df(tmp_path)
+            target_name = fit_import_service.convert_name_file(original_name)
+            target_path = target_dir / target_name
+
+            if target_path.exists():
+                skipped.append(
+                    {
+                        "file": original_name,
+                        "reason": f"Target file already exists: {target_name}",
+                    }
+                )
+                continue
+
+            notebook_service.write_pickle_secure(converted, target_path)
+            saved.append(
+                {
+                    "source_file": original_name,
+                    "saved_file": target_name,
+                    "rows": int(converted.shape[0]),
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            skipped.append({"file": original_name, "reason": str(exc)})
+        finally:
+            try:
+                if tmp_path is not None and tmp_path.exists():
+                    tmp_path.unlink()
+            except Exception:
+                pass
+
+    return {
+        "ok": True,
+        "cyclist": target_cyclist,
+        "saved_count": len(saved),
+        "skipped_count": len(skipped),
+        "saved": saved,
+        "skipped": skipped,
+    }
 
 
 @app.post("/analysis/run")

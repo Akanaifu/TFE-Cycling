@@ -82,13 +82,13 @@ export default function PredictionChart({
 
   // Colors for different models
   const colors: Record<string, string> = {
-    actual: "#ad2831",
-    pred_hist: "#640d14",
-    pred_default: "#800e13",
-    pred_no_fuite: "#f59e0b",
-    pred_arx_selected: "#38040e",
-    compare_model_a: "#ad2831",
-    compare_model_b: "#640d14",
+    actual: "#ffc300",
+    pred_hist: "#1d4e89",
+    pred_default: "#2563eb",
+    pred_no_fuite: "#0f766e",
+    pred_arx_selected: "#7c3aed",
+    compare_model_a: "#1d4e89",
+    compare_model_b: "#7c3aed",
   };
 
   // Generate path string for SVG line
@@ -117,7 +117,7 @@ export default function PredictionChart({
   };
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#fff7f4] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.18)]">
+    <div className="rounded-2xl border border-[#d6e1ee] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.14)]">
       <h3 className="mb-4 text-lg font-semibold text-[#250902]">
         Fréquence Cardiaque - Prédictions vs Réalité
       </h3>
@@ -146,7 +146,7 @@ export default function PredictionChart({
                 y1={padding}
                 x2={x}
                 y2={padding + innerHeight}
-                stroke="#f0d3cf"
+                stroke="#d8e2ee"
                 strokeWidth="1"
               />
             );
@@ -161,7 +161,7 @@ export default function PredictionChart({
                 y1={y}
                 x2={padding + innerWidth}
                 y2={y}
-                stroke="#f0d3cf"
+                stroke="#d8e2ee"
                 strokeWidth="1"
               />
             );
@@ -173,7 +173,7 @@ export default function PredictionChart({
             y1={padding}
             x2={padding}
             y2={padding + innerHeight}
-            stroke="#250902"
+            stroke="#001d3d"
             strokeWidth="2"
           />
           <line
@@ -181,7 +181,7 @@ export default function PredictionChart({
             y1={padding + innerHeight}
             x2={padding + innerWidth}
             y2={padding + innerHeight}
-            stroke="#250902"
+            stroke="#001d3d"
             strokeWidth="2"
           />
 
@@ -214,7 +214,7 @@ export default function PredictionChart({
                 x={x}
                 y={padding + innerHeight + 20}
                 textAnchor="middle"
-                className="text-xs text-[#7c5a5d]"
+                className="text-xs text-[#335372]"
               >
                 {time.toFixed(1)}
               </text>
@@ -230,7 +230,7 @@ export default function PredictionChart({
                 x={padding - 10}
                 y={y + 4}
                 textAnchor="end"
-                className="text-xs text-[#7c5a5d]"
+                className="text-xs text-[#335372]"
               >
                 {hr.toFixed(0)}
               </text>
@@ -355,13 +355,17 @@ function StatisticsTable({
       <h4 className="font-semibold text-gray-900 mb-3">Statistiques</h4>
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-gray-100 border-b">
-            <th className="px-4 py-2 text-left font-semibold">Métrique</th>
-            <th className="px-4 py-2 text-right font-semibold">FC réelle</th>
+          <tr className="border-b border-[#c9d6e6] bg-[#eaf0f6]">
+            <th className="px-4 py-2 text-left font-bold text-[#001d3d]">
+              Métrique
+            </th>
+            <th className="px-4 py-2 text-right font-bold text-[#001d3d]">
+              FC réelle
+            </th>
             {models.map((model) => (
               <th
                 key={`header-${model}`}
-                className="px-4 py-2 text-right font-semibold"
+                className="px-4 py-2 text-right font-bold text-[#001d3d]"
               >
                 {MODEL_LABELS[model] || model}
               </th>

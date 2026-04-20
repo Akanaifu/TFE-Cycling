@@ -7,10 +7,7 @@ import { commonPipelineStyles } from "../components/pipelineStyles";
 
 export default function PredictionPipelinePage() {
   const router = useRouter();
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL, []);
 
   const [authChecked, setAuthChecked] = useState(false);
 

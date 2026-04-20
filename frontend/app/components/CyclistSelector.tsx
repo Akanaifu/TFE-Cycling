@@ -25,8 +25,7 @@ export default function CyclistSelector({
       setLoading(true);
       setError(null);
       try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
         const response = await fetch(`${apiUrl}/cyclists/list`, {
           credentials: "include",
         });
@@ -68,8 +67,7 @@ export default function CyclistSelector({
       }
 
       try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
         const dirPath = `../DB/rides/${selectedCyclist}`;
         const response = await fetch(
           `${apiUrl}/rides/list?dir_path=${encodeURIComponent(dirPath)}`,

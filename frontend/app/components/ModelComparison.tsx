@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
 import PredictionChart from "./PredictionChart";
 import CyclistSelector from "./CyclistSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
@@ -514,7 +515,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                 Différence de BPM entre les modèles (Sortie de test #
                 {selectedTestRide})
               </h2>
-              <div className="rounded-2xl border border-[#003566] bg-[#000814]/55 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)]">
+              <div className="rounded-2xl border border-[#d6e1ee] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.14)]">
                 <svg width={800} height={300} className="bg-transparent">
                   <title>Diff BPM: Model A - Model B</title>
                   <defs>
@@ -531,7 +532,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                       y1={30}
                       x2={60 + t * 740}
                       y2={270}
-                      stroke="#003566"
+                      stroke="#cfdbe8"
                       strokeWidth="1"
                     />
                   ))}
@@ -542,7 +543,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                       y1={30 + (1 - t) * 240}
                       x2={800}
                       y2={30 + (1 - t) * 240}
-                      stroke="#003566"
+                      stroke="#cfdbe8"
                       strokeWidth="1"
                     />
                   ))}
@@ -553,7 +554,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                     y1={30}
                     x2={60}
                     y2={270}
-                    stroke="#fff8d6"
+                    stroke="#001d3d"
                     strokeWidth="2"
                   />
                   <line
@@ -561,7 +562,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                     y1={270}
                     x2={800}
                     y2={270}
-                    stroke="#fff8d6"
+                    stroke="#001d3d"
                     strokeWidth="2"
                   />
 
@@ -614,7 +615,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             x={50}
                             y={tick.y + 4}
                             textAnchor="end"
-                            className="text-xs text-[#9fb4d2]"
+                            className="text-xs text-[#335372]"
                           >
                             {tick.value.toFixed(1)}
                           </text>
@@ -633,7 +634,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y1={zeroY}
                             x2={800}
                             y2={zeroY}
-                            stroke="#9fb4d2"
+                            stroke="#6b87a4"
                             strokeWidth="1"
                             strokeDasharray="5,5"
                           />
@@ -667,7 +668,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                   Moyenne des différences : (Modèle A - Modèle B) / nombre de
                   points
                 </p>
-                <div className="rounded-2xl border border-[#003566] bg-[#000814]/55 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)]">
+                <div className="rounded-2xl border border-[#d6e1ee] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.14)]">
                   <svg width={900} height={400} className="bg-transparent">
                     <title>Diff BPM moyennes par sortie</title>
                     {(() => {
@@ -720,7 +721,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                               y1={tick.y}
                               x2={825}
                               y2={tick.y}
-                              stroke="#003566"
+                              stroke="#cfdbe8"
                               strokeWidth="1"
                             />
                           ))}
@@ -730,7 +731,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y1={50}
                             x2={75}
                             y2={350}
-                            stroke="#fff8d6"
+                            stroke="#001d3d"
                             strokeWidth="2"
                           />
                           <line
@@ -738,7 +739,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y1={350}
                             x2={825}
                             y2={350}
-                            stroke="#fff8d6"
+                            stroke="#001d3d"
                             strokeWidth="2"
                           />
 
@@ -749,7 +750,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                               x={65}
                               y={tick.y + 4}
                               textAnchor="end"
-                              className="text-xs text-[#9fb4d2]"
+                              className="text-xs text-[#335372]"
                             >
                               {tick.value.toFixed(1)}
                             </text>
@@ -773,7 +774,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                                 <text
                                   x={x + 6}
                                   y={y - 6}
-                                  className="text-xs font-semibold fill-[#fff8d6]"
+                                  className="text-xs font-semibold fill-[#001d3d]"
                                 >
                                   {ride.mean_bpm_diff.toFixed(2)}
                                 </text>
@@ -788,7 +789,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                               x={tick.x}
                               y={366}
                               textAnchor="middle"
-                              className="text-xs text-[#9fb4d2]"
+                              className="text-xs text-[#335372]"
                             >
                               {tick.value}
                             </text>
@@ -799,7 +800,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             x={450}
                             y={380}
                             textAnchor="middle"
-                            className="text-xs font-semibold fill-[#fff8d6]"
+                            className="text-xs font-semibold fill-[#001d3d]"
                           >
                             Numéro de sortie
                           </text>
@@ -808,7 +809,7 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
                             y={200}
                             textAnchor="middle"
                             transform="rotate(-90 20 200)"
-                            className="text-xs font-semibold fill-[#fff8d6]"
+                            className="text-xs font-semibold fill-[#001d3d]"
                           >
                             Valeur BPM
                           </text>

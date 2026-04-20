@@ -51,10 +51,7 @@ type StravaActivity = {
 export default function StravaPipelineContent() {
   const { replace } = useRouter();
   const searchParams = useSearchParams();
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL, []);
   const autoExchangeDoneRef = useRef(false);
 
   const [status, setStatus] = useState<StravaStatus | null>(null);

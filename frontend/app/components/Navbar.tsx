@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 
 const navigationItems = [
   { href: "/pipeline", label: "Pipeline" },
+  { href: "/fit-import", label: "Import FIT" },
   { href: "/compare-models", label: "Comparaison" },
   { href: "/strava", label: "Strava" },
 ];
@@ -41,8 +42,7 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     try {
-      const apiUrl =
-        process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       await fetch(`${apiUrl}/auth/logout`, {
         method: "POST",
         credentials: "include",
