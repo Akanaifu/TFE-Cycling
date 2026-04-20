@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: tfe_cycling
       POSTGRES_USER: tfe_user
-      POSTGRES_PASSWORD: ${PGPASSWORD:-}
+      POSTGRES_PASSWORD: ton_mot_de_passe
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./DB/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -43,3 +43,6 @@ services:
       - ./DB/rides:/opt/tfe/DB/rides
     ports:
       - "8000:8000"
+
+volumes:
+  postgres_data:
