@@ -52,7 +52,7 @@ export default function StravaPipelineContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
+    () => process.env.NEXT_PUBLIC_API_URL || "",
     [],
   );
   const autoExchangeDoneRef = useRef(false);

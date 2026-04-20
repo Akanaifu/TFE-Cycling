@@ -9,7 +9,7 @@ import {
 
 export default function Register() {
   const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
+    () => process.env.NEXT_PUBLIC_API_URL || "",
     [],
   );
   const [email, setEmail] = useState("");
