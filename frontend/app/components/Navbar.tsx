@@ -18,6 +18,12 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const isAuthRoute = pathname === "/login" || pathname === "/register";
+
+  if (isAuthRoute) {
+    return null;
+  }
+
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {

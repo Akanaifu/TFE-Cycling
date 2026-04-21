@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   title: "TFE Cycling - Analyse des Prédictions",
   description:
     "Visualisation et analyse des modèles de prédiction de fréquence cardiaque pour le cyclisme",
+  icons: {
+    icon: "/strava-app-icon-v3.png",
+  },
 };
 
 export default function RootLayout({
