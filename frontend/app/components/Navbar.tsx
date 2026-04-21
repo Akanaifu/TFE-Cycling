@@ -20,10 +20,6 @@ export default function Navbar() {
 
   const isAuthRoute = pathname === "/login" || pathname === "/register";
 
-  if (isAuthRoute) {
-    return null;
-  }
-
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
@@ -59,6 +55,10 @@ export default function Navbar() {
       router.refresh();
     }
   };
+
+  if (isAuthRoute) {
+    return null;
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#003566]/70 bg-[#000814]/92 shadow-[0_14px_44px_rgba(0,0,0,0.34)] backdrop-blur-xl">

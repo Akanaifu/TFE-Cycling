@@ -73,7 +73,6 @@ async def startup_security_checks() -> None:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://tfe-cycling.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
