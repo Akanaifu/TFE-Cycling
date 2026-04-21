@@ -30,7 +30,7 @@ interface PipelineResponse {
 }
 
 export default function PipelineRunner() {
-  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL, []);
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
 
   const [selectedCyclist, setSelectedCyclist] = useState("");
   const [selectedModels, setSelectedModels] = useState<string[]>([

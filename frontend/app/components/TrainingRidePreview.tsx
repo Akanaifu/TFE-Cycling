@@ -61,7 +61,7 @@ export default function TrainingRidePreview({
       setLoading(true);
       setError(null);
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
         const response = await fetch(
           `${apiUrl}/rides/training-ride?cyclist=${cyclist}&ride_index=${rideIndex}`,
           {

@@ -35,6 +35,7 @@ import app.services.fit_import as fit_import_service
 import app.services.notebook as notebook_service
 from app.services.security import decrypt_secret_fernet, encrypt_secret_fernet
 import app.services.strava as strava_service
+from fastapi.staticfiles import StaticFiles
 
 
 app = FastAPI(title="TFE Cycling API", version="0.1.0")
@@ -73,7 +74,6 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://tfe-cycling.vercel.app",
-        "https://www.tfe-cycling.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
@@ -1359,3 +1359,11 @@ def _read_pkl_diagnostic(file_path: str) -> dict:
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"PKL read failed: {exc}") from exc
+
+
+# ── Serve React SPA ───────────────────────────────────────────────────────────
+_PUBLIC = Path(__file__).parent / "public"
+_INDEX = _PUBLIC / "index.html"
+
+if _PUBLIC.exists() and _INDEX.exists():
+    app.mount("/", StaticFiles(directory=str(_PUBLIC), html=True), name="spa")

@@ -1,24 +1,14 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: tfe_postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-tfe_cycling}
-      POSTGRES_USER: ${POSTGRES_USER:-tfe_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: tfe_cycling
+      POSTGRES_USER: tfe_user
+      POSTGRES_PASSWORD: ${PGPASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./DB/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-tfe_user} -d ${POSTGRES_DB:-tfe_cycling}",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      - ./DB/sql/remplissage.sql:/docker-entrypoint-initdb.d/02-remplissage.sql:ro
 
   backend:
     build:
@@ -49,19 +39,6 @@ services:
       - ./DB/rides:/opt/tfe/DB/rides
     ports:
       - "8000:8000"
-
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.tondomaine.be}
-    container_name: tfe_frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "3000:3000"
 
 volumes:
   postgres_data:
