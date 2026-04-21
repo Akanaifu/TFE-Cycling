@@ -1,15 +1,15 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: tfe_postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-tfe_cycling}
-      POSTGRES_USER: ${POSTGRES_USER:-tfe_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: tfe_cycling
+      POSTGRES_USER: tfe_user
+      POSTGRES_PASSWORD: ${PGPASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./DB/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./DB/sql/remplissage.sql:/docker-entrypoint-initdb.d/02-remplissage.sql:ro
+
   backend:
     build:
       context: .
@@ -17,12 +17,13 @@ services:
     container_name: tfe_backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tfe_user}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-tfe_cycling}
-      PGHOST: postgres
+      # DB runs directly on the server host, outside docker-compose.
+      DATABASE_URL: ${DATABASE_URL:-}
+      PGHOST: ${PGHOST:-host.docker.internal}
       PGPORT: ${PGPORT:-5432}
       PGDATABASE: ${PGDATABASE:-tfe_cycling}
       PGUSER: ${PGUSER:-tfe_user}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      PGPASSWORD: ${PGPASSWORD:-}
       APP_FERNET_KEY: ${APP_FERNET_KEY:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -32,12 +33,12 @@ services:
       STRAVA_REDIRECT_URI: ${STRAVA_REDIRECT_URI:-https://nathan.phausman.be/strava}
       STRAVA_SCOPES: ${STRAVA_SCOPES:-read,activity:read_all}
       STRAVA_TOKENS_FILE: ${STRAVA_TOKENS_FILE:-.strava_tokens.json}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./DB/rides:/opt/tfe/DB/rides
     ports:
       - "8000:8000"
+
 volumes:
   postgres_data:
