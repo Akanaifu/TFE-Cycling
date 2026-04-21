@@ -361,7 +361,7 @@ async def _save_uploaded_fit_to_temp(upload: UploadFile, max_bytes: int) -> Path
             pass
 
 
-@app.get("/")
+@app.get("/api")
 async def root() -> dict[str, str]:
     """Root endpoint returning API status."""
     return {"message": "TFE Cycling backend is running"}
