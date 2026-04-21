@@ -25,10 +25,7 @@ interface FitImportRunnerProps {
 }
 
 export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "https://tfe-cycling.onrender.com",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
 
   const isAdmin = authUser.role === "admin";
   const [selectedCyclist, setSelectedCyclist] = useState("");
@@ -72,10 +69,18 @@ export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
         | { detail?: string };
 
       if (!response.ok) {
-        throw new Error(payload?.detail || `HTTP ${response.status}`);
+        const detail =
+          "detail" in payload && typeof payload.detail === "string"
+            ? payload.detail
+            : undefined;
+        throw new Error(detail || `HTTP ${response.status}`);
       }
 
-      setFitImportResult(payload as FitImportResponse);
+      if (!("ok" in payload)) {
+        throw new Error("Réponse API invalide");
+      }
+
+      setFitImportResult(payload);
       setFitFiles([]);
     } catch (err) {
       setFitImportError(

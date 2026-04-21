@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime
 import os
 from pathlib import Path
 from typing import Any
 import importlib
+
+
+CYCLIST_PATTERN_PREFIX = "cyclist"
 
 
 def get_all_rides() -> list[dict[str, Any]]:
@@ -150,14 +152,138 @@ def get_project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _sorted_cyclists(cyclists: set[str]) -> list[str]:
+    return sorted(
+        cyclists,
+        key=lambda x: (
+            int(x.replace(CYCLIST_PATTERN_PREFIX, ""))
+            if x.replace(CYCLIST_PATTERN_PREFIX, "").isdigit()
+            else 10**9
+        ),
+    )
+
+
+def _extract_cyclist_from_file_path_value(file_path: str) -> str | None:
+    normalized = str(file_path or "").strip().replace("\\", "/")
+    if not normalized:
+        return None
+
+    parts = [part for part in normalized.split("/") if part]
+    for i, part in enumerate(parts):
+        if part == "rides" and i + 1 < len(parts):
+            maybe_cyclist = parts[i + 1]
+            if maybe_cyclist.startswith(CYCLIST_PATTERN_PREFIX):
+                return maybe_cyclist
+    return None
+
+
+def _ensure_user_cyclists_table(cur: Any) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_cyclists (
+            user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            cyclist text NOT NULL UNIQUE,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            CHECK (cyclist ~ '^cyclist[0-9]+$')
+        )
+        """
+    )
+
+
+def _get_mapped_cyclist_for_user(cur: Any, user_id: str) -> str | None:
+    cur.execute("SELECT cyclist FROM user_cyclists WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return str(row[0]).strip()
+
+
+def _legacy_cyclists_for_user(cur: Any, user_id: str) -> list[str]:
+    cur.execute("SELECT file_path FROM rides WHERE user_id = %s", (user_id,))
+    rows_data = cur.fetchall()
+    cyclists: set[str] = set()
+    for row in rows_data:
+        raw = row[0] if isinstance(row, tuple) else row.get("file_path")
+        cyclist = _extract_cyclist_from_file_path_value(str(raw or ""))
+        if cyclist:
+            cyclists.add(cyclist)
+    return _sorted_cyclists(cyclists)
+
+
+def _all_used_cyclists(cur: Any) -> set[str]:
+    used: set[str] = set()
+
+    cur.execute("SELECT cyclist FROM user_cyclists")
+    for row in cur.fetchall():
+        value = row[0] if isinstance(row, tuple) else row.get("cyclist")
+        cyclist = str(value or "").strip()
+        if cyclist:
+            used.add(cyclist)
+
+    cur.execute("SELECT file_path FROM rides")
+    for row in cur.fetchall():
+        value = row[0] if isinstance(row, tuple) else row.get("file_path")
+        cyclist = _extract_cyclist_from_file_path_value(str(value or ""))
+        if cyclist:
+            used.add(cyclist)
+
+    return used
+
+
+def _insert_user_cyclist_mapping(cur: Any, user_id: str, cyclist: str) -> bool:
+    cur.execute(
+        """
+        INSERT INTO user_cyclists (user_id, cyclist)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id) DO NOTHING
+        """,
+        (user_id, cyclist),
+    )
+    return cur.rowcount > 0
+
+
+def get_or_assign_user_cyclist(user_id: str) -> str:
+    """Return the user cyclist mapping, allocating a unique cyclist when missing."""
+    psycopg, rows = _get_psycopg_modules()
+
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            _ensure_user_cyclists_table(cur)
+
+            mapped = _get_mapped_cyclist_for_user(cur, user_id)
+            if mapped:
+                return mapped
+
+            legacy = _legacy_cyclists_for_user(cur, user_id)
+            for cyclist in legacy:
+                if _insert_user_cyclist_mapping(cur, user_id, cyclist):
+                    return cyclist
+                mapped = _get_mapped_cyclist_for_user(cur, user_id)
+                if mapped:
+                    return mapped
+
+            used = _all_used_cyclists(cur)
+            idx = 0
+            while True:
+                candidate = f"{CYCLIST_PATTERN_PREFIX}{idx}"
+                if candidate not in used:
+                    if _insert_user_cyclist_mapping(cur, user_id, candidate):
+                        return candidate
+                    mapped = _get_mapped_cyclist_for_user(cur, user_id)
+                    if mapped:
+                        return mapped
+                    used = _all_used_cyclists(cur)
+                idx += 1
+
+
 def build_strava_activity_file_path(
     *,
     user_id: str,
     athlete_id: int,
     activity: dict[str, Any],
 ) -> tuple[str, Path]:
-    """Build the relative and absolute PKL paths for a Strava activity."""
-    cyclist_folder = _get_user_default_cyclist(user_id)
+    """Build DB-stored filename and absolute PKL path for a Strava activity."""
+    cyclist_folder = get_or_assign_user_cyclist(user_id)
     activity_id = int(activity.get("id") or 0)
     start_date_raw = str(activity.get("start_date") or "").strip()
 
@@ -172,9 +298,8 @@ def build_strava_activity_file_path(
         file_stem = f"activity_{activity_id}"
 
     file_name = f"{file_stem}_{athlete_id}_{activity_id}.pkl"
-    relative_path = Path("DB") / "rides" / cyclist_folder / file_name
-    absolute_path = get_project_root() / relative_path
-    return str(relative_path).replace("\\", "/"), absolute_path
+    absolute_path = get_project_root() / "DB" / "rides" / cyclist_folder / file_name
+    return file_name, absolute_path
 
 
 def get_user_by_email(email: str) -> dict[str, Any] | None:
@@ -344,94 +469,64 @@ def update_strava_account_tokens(
 
 
 def get_user_rides_dir(user_id: str) -> str | None:
-    psycopg, rows = _get_psycopg_modules()
-    query = """
-        SELECT file_path
-        FROM rides
-        WHERE user_id = %s
-        ORDER BY created_at DESC
-        LIMIT 100
-    """
-    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
-            rows_data = cur.fetchall()
-
-    if not rows_data:
-        return None
-
-    parent_dirs: list[str] = []
-    for row in rows_data:
-        raw_path = str(row.get("file_path", "") or "").strip()
-        if not raw_path:
-            continue
-        normalized = raw_path.replace("\\", "/")
-        parent = normalized.rsplit("/", 1)[0] if "/" in normalized else ""
-        if parent:
-            parent_dirs.append(parent)
-
-    if not parent_dirs:
-        return None
-
-    most_common = Counter(parent_dirs).most_common(1)
-    return most_common[0][0] if most_common else None
+    cyclist = get_or_assign_user_cyclist(user_id)
+    return f"DB/rides/{cyclist}"
 
 
 def _extract_cyclists_from_paths(rows_data: list[dict[str, Any]]) -> list[str]:
     cyclists: set[str] = set()
     for row in rows_data:
         raw_path = str(row.get("file_path", "") or "").strip()
-        if not raw_path:
-            continue
-        normalized = raw_path.replace("\\", "/")
-        parts = [part for part in normalized.split("/") if part]
-        for i, part in enumerate(parts):
-            if part == "rides" and i + 1 < len(parts):
-                maybe_cyclist = parts[i + 1]
-                if maybe_cyclist.startswith("cyclist"):
-                    cyclists.add(maybe_cyclist)
-                    break
+        cyclist = _extract_cyclist_from_file_path_value(raw_path)
+        if cyclist:
+            cyclists.add(cyclist)
 
-    return sorted(cyclists)
+    return _sorted_cyclists(cyclists)
 
 
 def get_all_cyclists_from_rides() -> list[str]:
-    """Return all cyclist folder names from rides table file paths."""
+    """Return all cyclist folder names from explicit mapping and legacy ride paths."""
     psycopg, rows = _get_psycopg_modules()
-    query = """
-        SELECT file_path
-        FROM rides
-    """
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute(query)
-            rows_data = cur.fetchall()
+            _ensure_user_cyclists_table(cur)
 
-    return _extract_cyclists_from_paths(rows_data)
+            cyclists: set[str] = set()
+
+            cur.execute("SELECT cyclist FROM user_cyclists")
+            for row in cur.fetchall():
+                cyclist = str(row.get("cyclist", "") or "").strip()
+                if cyclist:
+                    cyclists.add(cyclist)
+
+            cur.execute("SELECT file_path FROM rides")
+            rows_data = cur.fetchall()
+            cyclists.update(_extract_cyclists_from_paths(rows_data))
+
+    return _sorted_cyclists(cyclists)
 
 
 def get_user_allowed_cyclists(user_id: str) -> list[str]:
-    """Return cyclist folder names visible to the given user based on rides table."""
-    psycopg, rows = _get_psycopg_modules()
-    query = """
-        SELECT file_path
-        FROM rides
-        WHERE user_id = %s
+    """Return cyclist folder names visible to the user.
+
+    Uses explicit user_cyclists mapping when available, with legacy ride-path fallback.
     """
+    psycopg, rows = _get_psycopg_modules()
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
-            rows_data = cur.fetchall()
+            _ensure_user_cyclists_table(cur)
 
-    return _extract_cyclists_from_paths(rows_data)
+            mapped = _get_mapped_cyclist_for_user(cur, user_id)
+            if mapped:
+                return [mapped]
+
+            legacy = _legacy_cyclists_for_user(cur, user_id)
+            return legacy
 
 
 def _get_user_default_cyclist(user_id: str) -> str:
-    """Resolve a cyclist folder for a user from existing rides, fallback to cyclist1."""
-    cyclists = get_user_allowed_cyclists(user_id)
-    if cyclists:
-        return cyclists[0]
-    return "cyclist1"
+    """Resolve a unique cyclist folder for a user, allocating one when needed."""
+    return get_or_assign_user_cyclist(user_id)
 
 
 def upsert_rides_from_strava_activities(

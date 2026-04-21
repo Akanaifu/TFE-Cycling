@@ -18,6 +18,8 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const isAuthRoute = pathname === "/login" || pathname === "/register";
+
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
@@ -54,6 +56,10 @@ export default function Navbar() {
     }
   };
 
+  if (isAuthRoute) {
+    return null;
+  }
+
   return (
     <header className="sticky top-0 z-50 border-b border-[#003566]/70 bg-[#000814]/92 shadow-[0_14px_44px_rgba(0,0,0,0.34)] backdrop-blur-xl">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
@@ -72,7 +78,7 @@ export default function Navbar() {
               TFE Cycling
             </span>
             <span className="block text-lg font-semibold text-[#fff8d6]">
-              Analyse & navigation
+              Analyse
             </span>
           </span>
         </Link>
