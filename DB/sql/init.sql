@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS rides (
   UNIQUE (user_id, activity_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_cyclists (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  cyclist text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (cyclist ~ '^cyclist[0-9]+$')
+);
+
 CREATE TABLE IF NOT EXISTS sync_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -73,5 +80,6 @@ CREATE TABLE IF NOT EXISTS app_config_secrets (
 
 CREATE INDEX IF NOT EXISTS idx_rides_user_id ON rides(user_id);
 CREATE INDEX IF NOT EXISTS idx_rides_strava_account_id ON rides(strava_account_id);
+CREATE INDEX IF NOT EXISTS idx_user_cyclists_cyclist ON user_cyclists(cyclist);
 CREATE INDEX IF NOT EXISTS idx_sync_jobs_user_id ON sync_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_prediction_runs_user_id ON prediction_runs(user_id);

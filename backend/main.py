@@ -293,16 +293,7 @@ def _resolve_target_cyclist_for_fit_upload(
             user, f"../DB/rides/{cyclist_name}"
         )
     else:
-        allowed = database_service.get_user_allowed_cyclists(str(user["id"]))
-        if len(allowed) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "No cyclist folder is linked to your account yet. "
-                    "Ask an admin to assign one first."
-                ),
-            )
-        requested_cyclist = allowed[0]
+        requested_cyclist = database_service.get_or_assign_user_cyclist(str(user["id"]))
         effective_dir = f"../DB/rides/{requested_cyclist}"
 
     backend_dir = Path(__file__).resolve().parent
@@ -673,7 +664,7 @@ async def strava_get_activities(
                 if activity_id <= 0:
                     raise ValueError("Missing activity id")
 
-                relative_path, absolute_path = (
+                stored_file_name, absolute_path = (
                     database_service.build_strava_activity_file_path(
                         user_id=str(current_user["id"]),
                         athlete_id=athlete_id,
@@ -694,7 +685,7 @@ async def strava_get_activities(
                 notebook_service.write_pickle_secure(ride_df, absolute_path)
 
                 activity_with_path = dict(activity)
-                activity_with_path["file_path"] = relative_path
+                activity_with_path["file_path"] = stored_file_name
                 persisted_activities.append(activity_with_path)
             except Exception:
                 failed_activities += 1

@@ -216,14 +216,6 @@ def build_authorization_url(state: str | None = None) -> str:
     return f"{AUTH_URL}?{urlencode(params)}"
 
 
-def _resolve_tokens_path(tokens_file: str) -> Path:
-    path = Path(tokens_file)
-    if path.is_absolute():
-        return path
-    backend_root = Path(__file__).resolve().parents[2]
-    return (backend_root / path).resolve()
-
-
 def _extract_oauth_code(raw_value: str) -> str:
     """Normalize OAuth code input from either plain code or callback URL/query."""
     clean = (raw_value or "").strip().strip('"').strip("'")
@@ -250,13 +242,6 @@ def _extract_oauth_code(raw_value: str) -> str:
         return _code_from_query(clean)
 
     return clean
-
-
-def _save_tokens(tokens_payload: dict[str, Any], tokens_file: str) -> Path:
-    target = _resolve_tokens_path(tokens_file)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(tokens_payload, indent=2), encoding="utf-8")
-    return target
 
 
 def build_encrypted_tokens_payload(tokens_payload: dict[str, Any]) -> dict[str, Any]:
@@ -326,40 +311,6 @@ def exchange_code_for_tokens_payload(code: str) -> dict[str, Any]:
         raise ValueError(f"Token response missing access_token: {token_payload}")
 
     return token_payload
-
-
-def exchange_code_for_tokens(code: str) -> dict[str, Any]:
-    """Exchange OAuth code for Strava tokens and persist them on disk."""
-    settings = get_strava_settings()
-    token_payload = exchange_code_for_tokens_payload(code)
-
-    saved_path = _save_tokens(token_payload, settings["tokens_file"])
-    athlete = token_payload.get("athlete")
-    athlete_id = athlete.get("id") if isinstance(athlete, dict) else None
-
-    return {
-        "saved": True,
-        "tokens_file": str(saved_path),
-        "token_type": token_payload.get("token_type", "Bearer"),
-        "expires_at": token_payload.get("expires_at"),
-        "athlete_id": athlete_id,
-    }
-
-
-def _load_tokens(tokens_file: str) -> dict[str, Any]:
-    """Load tokens from persisted JSON file."""
-    tokens_path = _resolve_tokens_path(tokens_file)
-    if not tokens_path.exists():
-        raise ValueError(f"Tokens file not found: {tokens_path}")
-
-    try:
-        with open(tokens_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            raise ValueError("Invalid tokens format")
-        return data
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Failed to parse tokens JSON: {exc}") from exc
 
 
 def _is_token_expired(tokens: dict[str, Any], min_valid_seconds: int = 300) -> bool:
