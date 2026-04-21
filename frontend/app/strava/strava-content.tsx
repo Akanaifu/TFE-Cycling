@@ -49,7 +49,7 @@ type StravaActivity = {
 };
 
 export default function StravaPipelineContent() {
-  const router = useRouter();
+  const { replace } = useRouter();
   const searchParams = useSearchParams();
   const apiUrl = useMemo(
     () => process.env.NEXT_PUBLIC_API_URL || "",
@@ -79,56 +79,54 @@ export default function StravaPipelineContent() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [oauthState, setOauthState] = useState("");
 
-  const authHeaders = useMemo(() => {
-    if (!authToken) {
-      return {} as Record<string, string>;
-    }
-    return { Authorization: `Bearer ${authToken}` };
-  }, [authToken]);
-
-  const extractOAuthCode = (value: string): string => {
+  const extractOAuthParams = (
+    value: string,
+  ): { code: string; state: string } => {
     const clean = (value || "").trim().replace(/^['\"]|['\"]$/g, "");
     if (!clean) {
-      return "";
+      return { code: "", state: "" };
     }
 
-    const codeFromQuery = (query: string): string => {
+    const paramsFromQuery = (
+      query: string,
+    ): { code: string; state: string } => {
       const params = new URLSearchParams(query);
-      return (params.get("code") || "").trim();
+      return {
+        code: (params.get("code") || "").trim(),
+        state: (params.get("state") || "").trim(),
+      };
     };
 
     if (clean.startsWith("http://") || clean.startsWith("https://")) {
       try {
         const url = new URL(clean);
-        return (
-          codeFromQuery(url.search.slice(1)) || codeFromQuery(url.hash.slice(1))
-        );
+        const fromSearch = paramsFromQuery(url.search.slice(1));
+        if (fromSearch.code || fromSearch.state) {
+          return fromSearch;
+        }
+        return paramsFromQuery(url.hash.slice(1));
       } catch {
-        return "";
+        return { code: "", state: "" };
       }
     }
 
     if (clean.startsWith("?")) {
-      return codeFromQuery(clean.slice(1));
+      return paramsFromQuery(clean.slice(1));
     }
 
     if (clean.includes("code=") && clean.includes("=")) {
-      return codeFromQuery(clean.replace(/^#/, ""));
+      return paramsFromQuery(clean.replace(/^#/, ""));
     }
 
-    return clean;
+    return { code: clean, state: "" };
   };
 
   useEffect(() => {
-    const stored = localStorage.getItem("tfe_access_token");
-    if (!stored) {
-      router.replace("/login?next=/strava");
-      return;
-    }
-    setAuthToken(stored);
+    setAuthToken("cookie-session");
     setAuthChecked(true);
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -137,7 +135,7 @@ export default function StravaPipelineContent() {
       }
       try {
         const response = await fetch(`${apiUrl}/auth/me`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -145,15 +143,14 @@ export default function StravaPipelineContent() {
         }
         setAuthUser(payload.user as AuthUser);
       } catch {
-        localStorage.removeItem("tfe_access_token");
         setAuthToken(null);
         setAuthUser(null);
-        router.replace("/login?next=/strava");
+        replace("/login?next=/strava");
       }
     };
 
     fetchMe();
-  }, [apiUrl, authHeaders, authToken, router]);
+  }, [apiUrl, authToken, replace]);
 
   useEffect(() => {
     const loadStatus = async () => {
@@ -165,7 +162,7 @@ export default function StravaPipelineContent() {
       setStatusError(null);
       try {
         const response = await fetch(`${apiUrl}/strava/status`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -180,16 +177,22 @@ export default function StravaPipelineContent() {
     };
 
     loadStatus();
-  }, [apiUrl, authHeaders, authToken]);
+  }, [apiUrl, authToken]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("tfe_access_token");
-    setAuthToken(null);
-    setAuthUser(null);
-    setStatus(null);
-    setActivities([]);
-    setExchangeResult(null);
-    router.replace("/login?next=/strava");
+  const handleLogout = async () => {
+    try {
+      await fetch(`${apiUrl}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      setAuthToken(null);
+      setAuthUser(null);
+      setStatus(null);
+      setActivities([]);
+      setExchangeResult(null);
+      replace("/login?next=/strava");
+    }
   };
 
   const handleGenerateAuthUrl = async () => {
@@ -198,13 +201,14 @@ export default function StravaPipelineContent() {
     setAuthUrl(null);
     try {
       const response = await fetch(`${apiUrl}/strava/auth-url`, {
-        headers: authHeaders,
+        credentials: "include",
       });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
       setAuthUrl(payload.auth_url as string);
+      setOauthState((payload.oauth_state as string) || "");
     } catch (err) {
       setOauthAuthError(err instanceof Error ? err.message : "Erreur inconnue");
     } finally {
@@ -218,9 +222,17 @@ export default function StravaPipelineContent() {
       return;
     }
 
-    const code = extractOAuthCode(oauthCode);
+    const extracted = extractOAuthParams(oauthCode);
+    const code = extracted.code;
+    const state =
+      extracted.state || oauthState || (searchParams.get("state") || "").trim();
     if (!code) {
       setExchangeError("Le code OAuth est requis.");
+      setExchangeResult(null);
+      return;
+    }
+    if (!state) {
+      setExchangeError("Le state OAuth est requis.");
       setExchangeResult(null);
       return;
     }
@@ -231,11 +243,11 @@ export default function StravaPipelineContent() {
     try {
       const response = await fetch(`${apiUrl}/strava/exchange-code`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders,
         },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, state }),
       });
 
       const payload = await response.json();
@@ -247,7 +259,7 @@ export default function StravaPipelineContent() {
       setOauthCode("");
 
       const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
-        headers: authHeaders,
+        credentials: "include",
       });
       const refreshedPayload = await refreshedStatus.json();
       if (refreshedStatus.ok) {
@@ -267,7 +279,8 @@ export default function StravaPipelineContent() {
       }
 
       const codeFromUrl = (searchParams.get("code") || "").trim();
-      if (!codeFromUrl) {
+      const stateFromUrl = (searchParams.get("state") || "").trim();
+      if (!codeFromUrl || !stateFromUrl) {
         return;
       }
 
@@ -279,11 +292,11 @@ export default function StravaPipelineContent() {
       try {
         const response = await fetch(`${apiUrl}/strava/exchange-code`, {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            ...authHeaders,
           },
-          body: JSON.stringify({ code: codeFromUrl }),
+          body: JSON.stringify({ code: codeFromUrl, state: stateFromUrl }),
         });
 
         const payload = await response.json();
@@ -294,14 +307,14 @@ export default function StravaPipelineContent() {
         setExchangeResult(payload.result as ExchangeResult);
 
         const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
-          headers: authHeaders,
+          credentials: "include",
         });
         const refreshedPayload = await refreshedStatus.json();
         if (refreshedStatus.ok) {
           setStatus(refreshedPayload.status as StravaStatus);
         }
 
-        router.replace("/strava");
+        replace("/strava");
       } catch (err) {
         setExchangeError(
           err instanceof Error ? err.message : "Erreur inconnue",
@@ -312,17 +325,20 @@ export default function StravaPipelineContent() {
     };
 
     autoExchangeCode();
-  }, [apiUrl, authHeaders, authToken, router, searchParams]);
+  }, [apiUrl, authToken, replace, searchParams]);
 
   const handlePasteOAuthCode = async () => {
     try {
       const pasted = await navigator.clipboard.readText();
-      const normalized = extractOAuthCode(pasted);
-      if (!normalized) {
+      const normalized = extractOAuthParams(pasted);
+      if (!normalized.code) {
         setExchangeError("Aucun code OAuth detecte dans le presse-papiers.");
         return;
       }
-      setOauthCode(normalized);
+      setOauthCode(normalized.code);
+      if (normalized.state) {
+        setOauthState(normalized.state);
+      }
       setExchangeError(null);
     } catch {
       setExchangeError("Impossible de lire le presse-papiers.");
@@ -343,7 +359,7 @@ export default function StravaPipelineContent() {
       const response = await fetch(
         `${apiUrl}/strava/activities?limit=${selectedActivityLimit}`,
         {
-          headers: authHeaders,
+          credentials: "include",
         },
       );
       const payload = await response.json();
@@ -472,11 +488,11 @@ export default function StravaPipelineContent() {
             )}
             {authUrl && (
               <div className="mt-2 space-y-2">
-                <p className="break-all text-blue-950">{authUrl}</p>
+                <p className="break-all text-[#ffd60a]">{authUrl}</p>
                 <a href={authUrl} className={stravaPageStyles.openLink}>
                   Ouvrir Strava
                 </a>
-                <p className="text-sm text-slate-700">
+                <p className="text-sm text-[#dbeafe]/80">
                   Apres autorisation, Strava te redirige automatiquement sur
                   cette page pour echanger le code.
                 </p>

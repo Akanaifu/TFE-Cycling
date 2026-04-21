@@ -17,13 +17,12 @@ services:
     container_name: tfe_backend
     restart: unless-stopped
     environment:
-      # DB runs directly on the server host, outside docker-compose.
-      DATABASE_URL: ${DATABASE_URL:-}
-      PGHOST: ${PGHOST:-host.docker.internal}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tfe_user}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-tfe_cycling}
+      PGHOST: postgres
       PGPORT: ${PGPORT:-5432}
       PGDATABASE: ${PGDATABASE:-tfe_cycling}
       PGUSER: ${PGUSER:-tfe_user}
-      PGPASSWORD: ${PGPASSWORD:-}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change_me}
       APP_FERNET_KEY: ${APP_FERNET_KEY:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -33,8 +32,9 @@ services:
       STRAVA_REDIRECT_URI: ${STRAVA_REDIRECT_URI:-https://nathan.phausman.be/strava}
       STRAVA_SCOPES: ${STRAVA_SCOPES:-read,activity:read_all}
       STRAVA_TOKENS_FILE: ${STRAVA_TOKENS_FILE:-.strava_tokens.json}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./DB/rides:/opt/tfe/DB/rides
     ports:

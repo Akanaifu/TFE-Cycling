@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.services import database as database_service
@@ -80,14 +80,13 @@ def _load_jwt() -> Any:
 
 
 def verify_password(password_plain: str, password_stored: str) -> bool:
-    """Verify password against bcrypt hash, with plain fallback for legacy seed rows."""
+    """Verify password strictly against a bcrypt hash."""
     if not password_plain or not password_stored:
         return False
 
     stored = password_stored.strip()
-    # Legacy fallback: plain text value in seed data.
     if not stored.startswith("$2"):
-        return password_plain == stored
+        return False
 
     bcrypt = _load_bcrypt()
     try:
@@ -142,14 +141,22 @@ def _decode_token(token: str) -> dict[str, Any]:
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+    *,
+    request: Request,
 ) -> dict[str, Any]:
-    if not credentials or not credentials.credentials:
+    token = ""
+    if credentials and credentials.credentials:
+        token = credentials.credentials
+    elif request is not None:
+        token = str(request.cookies.get("tfe_access_token", "") or "").strip()
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token",
         )
 
-    payload = _decode_token(credentials.credentials)
+    payload = _decode_token(token)
     user_id = str(payload.get("sub", "") or "").strip()
     if not user_id:
         raise HTTPException(

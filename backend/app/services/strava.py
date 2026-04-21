@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
+import secrets
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -18,6 +23,87 @@ from app.services.security import encrypt_secret_fernet
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
 API_BASE = "https://www.strava.com/api/v3"
+
+
+def _urlsafe_b64encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _urlsafe_b64decode(raw: str) -> bytes:
+    padded = raw + ("=" * ((4 - (len(raw) % 4)) % 4))
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def _oauth_state_secret() -> str:
+    secret = _read_env_any(["STRAVA_OAUTH_STATE_SECRET", "JWT_SECRET_KEY"], "")
+    if not secret:
+        raise ValueError("Missing STRAVA_OAUTH_STATE_SECRET (or JWT_SECRET_KEY)")
+    return secret
+
+
+def build_oauth_state_token(*, user_id: str, nonce: str | None = None) -> str:
+    """Build a signed OAuth state token bound to a user id."""
+    uid = (user_id or "").strip()
+    if not uid:
+        raise ValueError("Missing user_id for OAuth state")
+
+    payload = {
+        "uid": uid,
+        "iat": int(time.time()),
+        "nonce": (nonce or secrets.token_urlsafe(8)).strip(),
+    }
+    payload_b64 = _urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    )
+    signature = hmac.new(
+        _oauth_state_secret().encode("utf-8"),
+        payload_b64.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return f"{payload_b64}.{_urlsafe_b64encode(signature)}"
+
+
+def validate_oauth_state_token(
+    state_token: str,
+    *,
+    user_id: str,
+    max_age_seconds: int = 900,
+) -> bool:
+    """Validate a signed OAuth state token for the given user id."""
+    token = (state_token or "").strip()
+    if "." not in token:
+        return False
+
+    payload_part, signature_part = token.split(".", 1)
+    if not payload_part or not signature_part:
+        return False
+
+    expected_sig = hmac.new(
+        _oauth_state_secret().encode("utf-8"),
+        payload_part.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    try:
+        provided_sig = _urlsafe_b64decode(signature_part)
+    except Exception:
+        return False
+
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        return False
+
+    try:
+        payload = json.loads(_urlsafe_b64decode(payload_part).decode("utf-8"))
+    except Exception:
+        return False
+
+    issued_at = int(payload.get("iat") or 0)
+    now = int(time.time())
+    if issued_at <= 0 or issued_at > now + 60:
+        return False
+    if now - issued_at > max(60, int(max_age_seconds)):
+        return False
+
+    return str(payload.get("uid", "")).strip() == str(user_id).strip()
 
 
 def _format_exchange_error(status_code: int, body: str) -> str:

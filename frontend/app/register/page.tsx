@@ -45,6 +45,7 @@ export default function Register() {
     try {
       const response = await fetch(`${apiUrl}/auth/register`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
@@ -59,16 +60,12 @@ export default function Register() {
         return;
       }
 
-      const data = await response.json();
-      if (data.access_token) {
-        // Store token and redirect
-        localStorage.setItem("tfe_access_token", data.access_token);
-        setSuccess(true);
-        // Redirect after 1 second
-        setTimeout(() => {
-          window.location.href = "/strava";
-        }, 1000);
-      }
+      await response.json();
+      setSuccess(true);
+      // Redirect after 1 second
+      setTimeout(() => {
+        window.location.href = "/strava";
+      }, 1000);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Erreur lors de l'enregistrement",
@@ -105,7 +102,7 @@ export default function Register() {
 
         <form onSubmit={handleRegister} className={authPageStyles.form}>
           <div>
-            <label className={commonPipelineStyles.formLabel}>Email</label>
+            <p className={commonPipelineStyles.formLabel}>Email</p>
             <input
               type="email"
               value={email}
@@ -117,9 +114,7 @@ export default function Register() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
-              Mot de passe
-            </label>
+            <p className={commonPipelineStyles.formLabel}>Mot de passe</p>
             <input
               type="password"
               value={password}
@@ -131,9 +126,9 @@ export default function Register() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
+            <p className={commonPipelineStyles.formLabel}>
               Confirmer le mot de passe
-            </label>
+            </p>
             <input
               type="password"
               value={confirmPassword}
@@ -145,9 +140,9 @@ export default function Register() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
+            <p className={commonPipelineStyles.formLabel}>
               Nom d&apos;affichage (optionnel)
-            </label>
+            </p>
             <input
               type="text"
               value={displayName}

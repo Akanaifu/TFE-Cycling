@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface TrainingRideData {
   cyclist: string;
@@ -29,13 +29,13 @@ interface TrainingRideRow {
 interface TrainingRidePreviewProps {
   cyclist: string;
   rideIndex: number;
-  authToken: string | null;
+  modelLabel?: "A" | "B";
 }
 
 export default function TrainingRidePreview({
   cyclist,
   rideIndex,
-  authToken,
+  modelLabel,
 }: TrainingRidePreviewProps) {
   const [rideData, setRideData] = useState<TrainingRideData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,12 +50,10 @@ export default function TrainingRidePreview({
 
   useEffect(() => {
     const fetchRideData = async () => {
-      if (!authToken || !cyclist) {
+      if (!cyclist) {
         setRideData(null);
         setError(
-          !authToken
-            ? "Connecte-toi pour charger la ride d'entrainement."
-            : "Selectionne un cycliste pour charger la ride d'entrainement.",
+          "Selectionne un cycliste pour charger la ride d'entrainement.",
         );
         return;
       }
@@ -67,7 +65,7 @@ export default function TrainingRidePreview({
         const response = await fetch(
           `${apiUrl}/rides/training-ride?cyclist=${cyclist}&ride_index=${rideIndex}`,
           {
-            headers: { Authorization: `Bearer ${authToken}` },
+            credentials: "include",
           },
         );
 
@@ -88,22 +86,22 @@ export default function TrainingRidePreview({
     };
 
     fetchRideData();
-  }, [authToken, cyclist, rideIndex]);
+  }, [cyclist, rideIndex]);
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-xl font-bold text-gray-900 mb-4">
-        📊 Ride d&apos;entraînement - Modèle
+    <div className="rounded-2xl border border-white/10 bg-[#fff7f4] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.18)]">
+      <h3 className="mb-4 text-xl font-bold text-[#250902]">
+        📊 Ride d&apos;entraînement - Modèle {modelLabel ?? "A"}
       </h3>
 
       {loading && (
         <div className="text-center py-8">
-          <p className="text-gray-500">Chargement des données...</p>
+          <p className="text-[#7c5a5d]">Chargement des données...</p>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+        <div className="rounded-md border border-red-200 bg-red-50 p-4">
           <p className="text-red-800 font-medium">Erreur:</p>
           <p className="text-red-700 text-sm">{error}</p>
         </div>
@@ -114,34 +112,34 @@ export default function TrainingRidePreview({
           {/* Header Info */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs text-gray-600 font-medium">CYCLISTE</p>
-              <p className="text-lg font-bold text-gray-900">
+              <p className="text-xs font-medium text-[#7c5a5d]">CYCLISTE</p>
+              <p className="text-lg font-bold text-[#250902]">
                 {rideData.cyclist.replace("cyclist", "Cycliste ")}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-600 font-medium">RIDE #</p>
-              <p className="text-lg font-bold text-gray-900">
+              <p className="text-xs font-medium text-[#7c5a5d]">RIDE #</p>
+              <p className="text-lg font-bold text-[#250902]">
                 {rideData.ride_index}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-600 font-medium">DATE/HEURE</p>
-              <p className="text-sm font-mono text-gray-900">
+              <p className="text-xs font-medium text-[#7c5a5d]">DATE/HEURE</p>
+              <p className="text-sm font-mono text-[#250902]">
                 {rideData.datetime}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-600 font-medium">POINTS</p>
-              <p className="text-lg font-bold text-gray-900">
+              <p className="text-xs font-medium text-[#7c5a5d]">POINTS</p>
+              <p className="text-lg font-bold text-[#250902]">
                 {rideData.n_points}
               </p>
             </div>
           </div>
 
           {/* Statistics Grid */}
-          <div className="border-t pt-4">
-            <p className="text-sm font-semibold text-gray-700 mb-3">
+          <div className="border-t border-[#f0d3cf] pt-4">
+            <p className="mb-3 text-sm font-semibold text-[#4f1b1e]">
               Statistiques
             </p>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -189,21 +187,21 @@ export default function TrainingRidePreview({
           </div>
 
           {/* Data Summary */}
-          <div className="border-t pt-4">
-            <p className="text-sm font-semibold text-gray-700 mb-2">
+          <div className="border-t border-[#f0d3cf] pt-4">
+            <p className="mb-2 text-sm font-semibold text-[#4f1b1e]">
               Colonnes disponibles
             </p>
             <div className="flex flex-wrap gap-2">
               {rideData.columns.slice(0, 10).map((col) => (
                 <span
                   key={col}
-                  className="inline-block bg-slate-200 text-slate-900 border border-slate-400 px-2 py-1 rounded text-xs font-mono font-semibold"
+                  className="inline-block rounded border border-[#640d14]/20 bg-[#f8d7d2]/40 px-2 py-1 font-mono text-xs font-semibold text-[#250902]"
                 >
                   {col}
                 </span>
               ))}
               {rideData.columns.length > 10 && (
-                <span className="inline-block text-gray-500 text-xs">
+                <span className="inline-block text-xs text-[#7c5a5d]">
                   +{rideData.columns.length - 10} autres
                 </span>
               )}
@@ -211,13 +209,13 @@ export default function TrainingRidePreview({
           </div>
 
           {/* Mini Data Preview Table */}
-          <div className="border-t pt-4 overflow-x-auto">
-            <p className="text-sm font-semibold text-gray-700 mb-2">
+          <div className="border-t border-[#f0d3cf] pt-4 overflow-x-auto">
+            <p className="mb-2 text-sm font-semibold text-[#4f1b1e]">
               Aperçu des données
             </p>
-            <table className="w-full text-xs border border-slate-300 rounded-md overflow-hidden">
+            <table className="w-full overflow-hidden rounded-md border border-[#f0d3cf] text-xs">
               <thead>
-                <tr className="bg-slate-800 text-white border-b border-slate-900">
+                <tr className="border-b border-[#640d14]/30 bg-[#38040e] text-[#fff4f1]">
                   <th className="px-3 py-2 text-left font-semibold tracking-wide">
                     t_min
                   </th>
@@ -235,30 +233,30 @@ export default function TrainingRidePreview({
               <tbody>
                 {rideData.data.slice(0, 5).map((row, idx) => (
                   <tr
-                    key={idx}
+                    key={`${String(row.t_min ?? "na")}-${String(row.hr ?? "na")}-${String(row.po ?? "na")}`}
                     className={
                       idx % 2 === 0
-                        ? "bg-white border-b border-slate-200"
-                        : "bg-slate-100 border-b border-slate-200"
+                        ? "bg-[#000814]/55 border-b border-[#003566]"
+                        : "bg-[#001d3d]/75 border-b border-[#003566]"
                     }
                   >
-                    <td className="px-3 py-2 font-mono text-slate-900">
+                    <td className="px-3 py-2 font-mono text-[#fff8d6]">
                       {formatNumber(row.t_min, 2)}
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-900">
+                    <td className="px-3 py-2 font-mono text-[#fff8d6]">
                       {formatNumber(row.hr, 0)}
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-900">
+                    <td className="px-3 py-2 font-mono text-[#fff8d6]">
                       {formatNumber(row.po, 0)}
                     </td>
-                    <td className="px-3 py-2 font-mono text-slate-900">
+                    <td className="px-3 py-2 font-mono text-[#fff8d6]">
                       {formatNumber(row.work, 0)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="mt-2 text-xs text-[#9fb4d2]">
               Affichage des 5 premiers points
             </p>
           </div>
@@ -280,28 +278,28 @@ function StatsBox({
   color: string;
 }) {
   const colorClasses: Record<string, string> = {
-    red: "bg-red-50 border-red-200",
-    blue: "bg-blue-50 border-blue-200",
-    orange: "bg-orange-50 border-orange-200",
-    green: "bg-green-50 border-green-200",
-    purple: "bg-purple-50 border-purple-200",
+    red: "bg-[#003566]/60 border-[#ffc300]/20",
+    blue: "bg-[#001d3d] border-[#003566]",
+    orange: "bg-[#003566]/70 border-[#ffc300]/30",
+    green: "bg-[#001d3d] border-[#003566]",
+    purple: "bg-[#003566]/65 border-[#ffc300]/25",
   };
 
   const textColors: Record<string, string> = {
-    red: "text-red-700",
-    blue: "text-blue-700",
-    orange: "text-orange-700",
-    green: "text-green-700",
-    purple: "text-purple-700",
+    red: "text-[#fff8d6]",
+    blue: "text-[#dbeafe]",
+    orange: "text-[#ffd60a]",
+    green: "text-[#fff8d6]",
+    purple: "text-[#ffd60a]",
   };
 
   return (
     <div
       className={`border rounded p-2 ${colorClasses[color] || colorClasses.red}`}
     >
-      <p className="text-xs text-gray-600 truncate">{label}</p>
+      <p className="truncate text-xs text-[#9fb4d2]">{label}</p>
       <p className={`text-base font-bold ${textColors[color]} truncate`}>
-        {value} <span className="text-xs">{unit}</span>
+        {value} <span className="text-xs text-[#9fb4d2]">{unit}</span>
       </p>
     </div>
   );
