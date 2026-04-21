@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import CyclistSelector from "./CyclistSelector";
 import PredictionChart from "./PredictionChart";
 import RideSelector from "./RideSelector";
-import CyclistSelector from "./CyclistSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
 import { commonPipelineStyles, predictionPageStyles } from "./pipelineStyles";
 
@@ -49,44 +49,28 @@ export default function PipelineRunner() {
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [maxTrainRideIndex, setMaxTrainRideIndex] = useState(1);
 
-  const authHeaders = useMemo(() => {
-    if (!authToken) {
-      return {} as Record<string, string>;
-    }
-    return { Authorization: `Bearer ${authToken}` };
-  }, [authToken]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("tfe_access_token");
-    if (stored) {
-      setAuthToken(stored);
-    }
-  }, []);
-
   useEffect(() => {
     const fetchMe = async () => {
-      if (!authToken) {
-        setAuthUser(null);
-        return;
-      }
       try {
         const response = await fetch(`${apiUrl}/auth/me`, {
-          headers: authHeaders,
+          credentials: "include",
         });
-        const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload?.detail || `HTTP ${response.status}`);
+          setAuthToken(null);
+          setAuthUser(null);
+          return;
         }
+        const payload = await response.json();
         setAuthUser(payload.user as AuthUser);
+        setAuthToken("cookie-session");
       } catch {
-        localStorage.removeItem("tfe_access_token");
         setAuthToken(null);
         setAuthUser(null);
       }
     };
 
     fetchMe();
-  }, [apiUrl, authHeaders, authToken]);
+  }, [apiUrl]);
 
   const handleLogin = async () => {
     setLoadingLogin(true);
@@ -94,6 +78,7 @@ export default function PipelineRunner() {
     try {
       const response = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -104,9 +89,7 @@ export default function PipelineRunner() {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
 
-      const token = payload.access_token as string;
-      setAuthToken(token);
-      localStorage.setItem("tfe_access_token", token);
+      setAuthToken("cookie-session");
       setAuthUser(payload.user as AuthUser);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "Erreur inconnue");
@@ -115,12 +98,18 @@ export default function PipelineRunner() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("tfe_access_token");
-    setAuthToken(null);
-    setAuthUser(null);
-    setResult(null);
-    setError(null);
+  const handleLogout = async () => {
+    try {
+      await fetch(`${apiUrl}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      setAuthToken(null);
+      setAuthUser(null);
+      setResult(null);
+      setError(null);
+    }
   };
 
   const handleRun = async () => {
@@ -140,9 +129,9 @@ export default function PipelineRunner() {
 
       const response = await fetch(`${apiUrl}/pipeline/run`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders,
         },
         body: JSON.stringify({
           dir_path: dirPath,
@@ -285,7 +274,6 @@ export default function PipelineRunner() {
           <CyclistSelector
             selectedCyclist={selectedCyclist}
             onSelectCyclist={setSelectedCyclist}
-            authToken={authToken}
             isAdmin
             onMaxRideIndexChange={setMaxTrainRideIndex}
           />
@@ -302,7 +290,6 @@ export default function PipelineRunner() {
             <CyclistSelector
               selectedCyclist={selectedCyclist}
               onSelectCyclist={setSelectedCyclist}
-              authToken={authToken}
               isAdmin={false}
               onMaxRideIndexChange={setMaxTrainRideIndex}
             />
@@ -332,7 +319,6 @@ export default function PipelineRunner() {
         <TrainingRidePreview
           cyclist={selectedCyclist}
           rideIndex={selectedTrainRide}
-          authToken={authToken}
         />
       </div>
 
@@ -344,9 +330,7 @@ export default function PipelineRunner() {
 
         {/* Model Selection */}
         <div>
-          <label className={predictionPageStyles.modelLabel}>
-            Modèles à calculer
-          </label>
+          <p className={predictionPageStyles.modelLabel}>Modèles à calculer</p>
           <div className={predictionPageStyles.modelGrid}>
             {availableModels.map((model) => (
               <label
@@ -369,6 +353,7 @@ export default function PipelineRunner() {
 
         {/* Run Button */}
         <button
+          type="button"
           onClick={handleRun}
           disabled={loading || selectedModels.length === 0}
           className={predictionPageStyles.runButton}
@@ -436,74 +421,10 @@ export default function PipelineRunner() {
                 rideData={currentRide}
                 models={result.models_computed}
               />
-
-              {/* Data Table */}
-              <div className={commonPipelineStyles.card}>
-                <h3 className={predictionPageStyles.tableSectionTitle}>
-                  Données détaillées
-                </h3>
-                <DataTable
-                  rideData={currentRide}
-                  models={result.models_computed}
-                />
-              </div>
             </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function DataTable({
-  rideData,
-  models,
-}: {
-  rideData: RideData;
-  models: string[];
-}) {
-  const displayColumns = ["t", "t_min", "po", "hr", ...models];
-  const filteredColumns = displayColumns.filter((col) =>
-    rideData.columns.includes(col),
-  );
-
-  // Show every nth row to keep table manageable
-  const step = Math.ceil(rideData.data.length / 50);
-  const displayedData = rideData.data.filter((_, i) => i % step === 0);
-
-  return (
-    <div className={predictionPageStyles.tableWrapper}>
-      <table className={predictionPageStyles.table}>
-        <thead>
-          <tr className={predictionPageStyles.tableHeadRow}>
-            {filteredColumns.map((col) => (
-              <th key={col} className={predictionPageStyles.tableHeaderCell}>
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {displayedData.map((row, idx) => (
-            <tr key={idx} className={predictionPageStyles.tableRow}>
-              {filteredColumns.map((col) => (
-                <td
-                  key={`${idx}-${col}`}
-                  className={predictionPageStyles.tableCell}
-                >
-                  {typeof row[col] === "number"
-                    ? row[col].toFixed(2)
-                    : String(row[col] ?? "")}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className={predictionPageStyles.tableFooter}>
-        Affichage de {displayedData.length} points sur {rideData.data.length}
-        (tous les {step} points)
-      </p>
     </div>
   );
 }

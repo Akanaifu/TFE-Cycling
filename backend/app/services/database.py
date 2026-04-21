@@ -207,6 +207,24 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
             return dict(row) if row else None
 
 
+def get_users_with_non_bcrypt_hashes(limit: int = 20) -> list[str]:
+    """Return emails for users that do not have bcrypt password hashes."""
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        SELECT email
+        FROM users
+        WHERE COALESCE(password_hash, '') = ''
+           OR LEFT(password_hash, 2) <> '$2'
+        ORDER BY email ASC
+        LIMIT %s
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (int(limit),))
+            rows_data = cur.fetchall()
+            return [str(row.get("email", "")) for row in rows_data if row.get("email")]
+
+
 def create_user(
     *,
     email: str,
@@ -359,19 +377,7 @@ def get_user_rides_dir(user_id: str) -> str | None:
     return most_common[0][0] if most_common else None
 
 
-def get_user_allowed_cyclists(user_id: str) -> list[str]:
-    """Return cyclist folder names visible to the given user based on rides table."""
-    psycopg, rows = _get_psycopg_modules()
-    query = """
-        SELECT file_path
-        FROM rides
-        WHERE user_id = %s
-    """
-    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
-            rows_data = cur.fetchall()
-
+def _extract_cyclists_from_paths(rows_data: list[dict[str, Any]]) -> list[str]:
     cyclists: set[str] = set()
     for row in rows_data:
         raw_path = str(row.get("file_path", "") or "").strip()
@@ -387,6 +393,37 @@ def get_user_allowed_cyclists(user_id: str) -> list[str]:
                     break
 
     return sorted(cyclists)
+
+
+def get_all_cyclists_from_rides() -> list[str]:
+    """Return all cyclist folder names from rides table file paths."""
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        SELECT file_path
+        FROM rides
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            rows_data = cur.fetchall()
+
+    return _extract_cyclists_from_paths(rows_data)
+
+
+def get_user_allowed_cyclists(user_id: str) -> list[str]:
+    """Return cyclist folder names visible to the given user based on rides table."""
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        SELECT file_path
+        FROM rides
+        WHERE user_id = %s
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (user_id,))
+            rows_data = cur.fetchall()
+
+    return _extract_cyclists_from_paths(rows_data)
 
 
 def _get_user_default_cyclist(user_id: str) -> str:

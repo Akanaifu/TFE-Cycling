@@ -8,13 +8,6 @@ import {
   commonPipelineStyles,
 } from "../components/pipelineStyles";
 
-type AuthUser = {
-  id: string;
-  email: string;
-  display_name?: string | null;
-  role: string;
-};
-
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -35,6 +28,7 @@ export default function LoginForm() {
     try {
       const response = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -45,12 +39,6 @@ export default function LoginForm() {
       if (!response.ok) {
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
-
-      localStorage.setItem("tfe_access_token", payload.access_token as string);
-      localStorage.setItem(
-        "tfe_auth_user",
-        JSON.stringify(payload.user as AuthUser),
-      );
       router.replace(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur inconnue");
@@ -73,7 +61,7 @@ export default function LoginForm() {
 
         <form onSubmit={handleLogin} className={authPageStyles.form}>
           <div>
-            <label className={commonPipelineStyles.formLabel}>Email</label>
+            <p className={commonPipelineStyles.formLabel}>Email</p>
             <input
               type="email"
               value={email}
@@ -86,9 +74,7 @@ export default function LoginForm() {
           </div>
 
           <div>
-            <label className={commonPipelineStyles.formLabel}>
-              Mot de passe
-            </label>
+            <p className={commonPipelineStyles.formLabel}>Mot de passe</p>
             <input
               type="password"
               value={password}
