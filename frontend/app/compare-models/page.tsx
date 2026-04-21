@@ -8,10 +8,7 @@ import { commonPipelineStyles } from "../components/pipelineStyles";
 
 export default function CompareModelsPage() {
   const router = useRouter();
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
 
   const [authChecked, setAuthChecked] = useState(false);
 

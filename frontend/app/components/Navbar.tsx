@@ -72,7 +72,7 @@ export default function Navbar() {
               TFE Cycling
             </span>
             <span className="block text-lg font-semibold text-[#fff8d6]">
-              Analyse & navigation
+              Analyse
             </span>
           </span>
         </Link>

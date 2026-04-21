@@ -15,7 +15,7 @@ interface AuthUser {
 
 export default function FitImportPage() {
   const router = useRouter();
-  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL, []);
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
 
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
