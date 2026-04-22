@@ -53,12 +53,8 @@ export default function PipelineRunner() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PipelineResponse | null>(null);
   const [selectedRideIndex, setSelectedRideIndex] = useState(0);
-  const [email, setEmail] = useState("shapunaifu_athlete@strava.local");
-  const [password, setPassword] = useState("");
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [loadingLogin, setLoadingLogin] = useState(false);
   const [maxTrainRideIndex, setMaxTrainRideIndex] = useState(1);
   const [selectedDiffModel, setSelectedDiffModel] = useState<string>("");
 
@@ -84,46 +80,6 @@ export default function PipelineRunner() {
 
     fetchMe();
   }, [apiUrl]);
-
-  const handleLogin = async () => {
-    setLoadingLogin(true);
-    setAuthError(null);
-    try {
-      const response = await fetch(`${apiUrl}/auth/login`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.detail || `HTTP ${response.status}`);
-      }
-
-      setAuthToken("cookie-session");
-      setAuthUser(payload.user as AuthUser);
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Erreur inconnue");
-    } finally {
-      setLoadingLogin(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${apiUrl}/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
-    } finally {
-      setAuthToken(null);
-      setAuthUser(null);
-      setResult(null);
-      setError(null);
-    }
-  };
 
   const handleRun = async () => {
     if (!authToken) {
@@ -323,61 +279,6 @@ export default function PipelineRunner() {
           Configurez le modèle d&apos;entrainement puis lancez l&apos;analyse
           prédictive
         </p>
-      </div>
-
-      <div className={`${commonPipelineStyles.card} space-y-4`}>
-        <h2 className={commonPipelineStyles.sectionTitleNoMargin}>
-          Authentification
-        </h2>
-        <p className={commonPipelineStyles.bodyText}>
-          Connecte-toi pour charger et analyser tes rides (routes protegees par
-          JWT).
-        </p>
-
-        {!authToken ? (
-          <div className={predictionPageStyles.authGrid}>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              className={commonPipelineStyles.textInput}
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mot de passe"
-              className={commonPipelineStyles.textInput}
-            />
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={loadingLogin}
-              className={commonPipelineStyles.buttonDark}
-            >
-              {loadingLogin ? "Connexion..." : "Se connecter"}
-            </button>
-          </div>
-        ) : (
-          <div className={commonPipelineStyles.authSuccessBanner}>
-            <p>
-              Connecte en tant que{" "}
-              {authUser?.display_name || authUser?.email || email}
-            </p>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className={commonPipelineStyles.buttonDarkCompact}
-            >
-              Se deconnecter
-            </button>
-          </div>
-        )}
-
-        {authError && (
-          <p className={commonPipelineStyles.errorText}>Erreur: {authError}</p>
-        )}
       </div>
 
       {showCyclistSelection && (

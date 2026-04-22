@@ -413,9 +413,17 @@ async def auth_login(
 
 @app.post("/auth/register")
 async def auth_register(
-    payload: AuthRegisterRequest, request: Request, response: Response
+    payload: AuthRegisterRequest,
+    request: Request,
+    current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
-    """Register a new user account."""
+    """Register a new user account (admin only)."""
+    if not _is_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can create user accounts",
+        )
+
     _enforce_auth_rate_limit(request, payload.email)
     email = payload.email.strip().lower()
 
@@ -450,16 +458,9 @@ async def auth_register(
             detail="Failed to create user",
         )
 
-    # Return token for immediate login
-    token = auth_service.create_access_token(
-        user_id=str(user["id"]),
-        email=str(user["email"]),
-        role=str(user.get("role", "user")),
-    )
-    _set_auth_cookie(response, token)
-
     return {
         "ok": True,
+        "message": "User account created",
         "user": {
             "id": str(user["id"]),
             "email": str(user["email"]),
