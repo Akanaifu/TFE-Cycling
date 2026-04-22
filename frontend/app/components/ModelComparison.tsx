@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
+import BpmDiffVisualizer from "./BpmDiffVisualizer";
 import PredictionChart from "./PredictionChart";
 import CyclistSelector from "./CyclistSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
@@ -104,6 +105,52 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
       })),
     };
   }, [comparisonResult]);
+
+  const pointDiffSeries = useMemo(() => {
+    if (!comparisonResult) {
+      return [] as Array<{ x: number; diff: number }>;
+    }
+
+    return comparisonResult.model1_predictions
+      .map((modelA, idx) => {
+        const modelB = comparisonResult.model2_predictions[idx];
+        const point = comparisonResult.ride_data.data[idx];
+        const tMinRaw = point?.t_min;
+        const tMin =
+          typeof tMinRaw === "number"
+            ? tMinRaw
+            : typeof tMinRaw === "string"
+              ? Number(tMinRaw)
+              : idx;
+
+        if (!Number.isFinite(modelA) || !Number.isFinite(modelB)) {
+          return null;
+        }
+        return {
+          x: Number.isFinite(tMin) ? tMin : idx,
+          diff: modelA - modelB,
+        };
+      })
+      .filter((point): point is { x: number; diff: number } => point !== null);
+  }, [comparisonResult]);
+
+  const summaryDiffRows = useMemo(() => {
+    if (!allRidesDiffs || !Array.isArray(allRidesDiffs)) {
+      return [] as Array<{
+        rideIndex: number;
+        datetime: string;
+        nPoints: number;
+        meanDiff: number;
+      }>;
+    }
+
+    return allRidesDiffs.map((ride) => ({
+      rideIndex: ride.ride_index,
+      datetime: ride.datetime,
+      nPoints: ride.n_points,
+      meanDiff: ride.mean_bpm_diff,
+    }));
+  }, [allRidesDiffs]);
 
   const getFiniteExtrema = (values: number[]) => {
     const finiteValues = values.filter((value) => Number.isFinite(value));
@@ -602,378 +649,29 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
             )}
           </div>
 
-          {/* Diff Chart */}
           {comparisonResult && (
-            <div className={commonPipelineStyles.card}>
-              <h2 className={commonPipelineStyles.sectionTitle}>
-                Différence de BPM entre les modèles (Sortie de test #
-                {selectedTestRide})
-              </h2>
-              <div className="rounded-2xl border border-[#d6e1ee] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.14)]">
-                <svg width={800} height={300} className="bg-transparent">
-                  <title>Diff BPM: Model A - Model B</title>
-                  <defs>
-                    <clipPath id="diff-clip">
-                      <rect x={60} y={30} width={740} height={240} />
-                    </clipPath>
-                  </defs>
-
-                  {/* Grid */}
-                  {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-                    <line
-                      key={`diff-vgrid-${t}`}
-                      x1={60 + t * 740}
-                      y1={30}
-                      x2={60 + t * 740}
-                      y2={270}
-                      stroke="#cfdbe8"
-                      strokeWidth="1"
-                    />
-                  ))}
-                  {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-                    <line
-                      key={`diff-hgrid-${t}`}
-                      x1={60}
-                      y1={30 + (1 - t) * 240}
-                      x2={800}
-                      y2={30 + (1 - t) * 240}
-                      stroke="#cfdbe8"
-                      strokeWidth="1"
-                    />
-                  ))}
-
-                  {/* Axes */}
-                  <line
-                    x1={60}
-                    y1={30}
-                    x2={60}
-                    y2={270}
-                    stroke="#001d3d"
-                    strokeWidth="2"
-                  />
-                  <line
-                    x1={60}
-                    y1={270}
-                    x2={800}
-                    y2={270}
-                    stroke="#001d3d"
-                    strokeWidth="2"
-                  />
-
-                  {/* Diff line */}
-                  {(() => {
-                    const diffs = comparisonResult.model1_predictions.map(
-                      (m1, idx) =>
-                        m1 - (comparisonResult.model2_predictions[idx] || 0),
-                    );
-                    const finiteDiffs = diffs.filter(Number.isFinite);
-                    if (finiteDiffs.length === 0) {
-                      return null;
-                    }
-
-                    const minDiff = Math.min(...finiteDiffs);
-                    const maxDiff = Math.max(...finiteDiffs);
-                    const pad = Math.max(1, (maxDiff - minDiff) * 0.1);
-                    const yMin = minDiff - pad;
-                    const yMax = maxDiff + pad;
-                    const yRange = Math.max(1e-9, yMax - yMin);
-
-                    const scaleY = (value: number) =>
-                      270 - ((value - yMin) / yRange) * 240;
-
-                    let path = "";
-                    for (let i = 0; i < diffs.length; i++) {
-                      const x = 60 + (i / Math.max(1, diffs.length - 1)) * 740;
-                      const y = scaleY(diffs[i]);
-                      if (i === 0) {
-                        path += `M ${x} ${y}`;
-                      } else {
-                        path += ` L ${x} ${y}`;
-                      }
-                    }
-
-                    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => {
-                      const value = yMin + t * (yMax - yMin);
-                      const y = scaleY(value);
-                      return { value, y };
-                    });
-
-                    const zeroInRange = yMin <= 0 && yMax >= 0;
-                    const zeroY = zeroInRange ? scaleY(0) : null;
-
-                    return (
-                      <>
-                        {yTicks.map((tick) => (
-                          <text
-                            key={`diff-y-tick-${tick.value.toFixed(2)}`}
-                            x={50}
-                            y={tick.y + 4}
-                            textAnchor="end"
-                            className="text-xs text-[#335372]"
-                          >
-                            {tick.value.toFixed(1)}
-                          </text>
-                        ))}
-
-                        <path
-                          d={path}
-                          fill="none"
-                          stroke="#ffc300"
-                          strokeWidth="2"
-                          clipPath="url(#diff-clip)"
-                        />
-                        {zeroY !== null && (
-                          <line
-                            x1={60}
-                            y1={zeroY}
-                            x2={800}
-                            y2={zeroY}
-                            stroke="#6b87a4"
-                            strokeWidth="1"
-                            strokeDasharray="5,5"
-                          />
-                        )}
-                      </>
-                    );
-                  })()}
-
-                  {/* Axis labels */}
-                  <text x={400} y={290} textAnchor="middle" className="text-xs">
-                    Points
-                  </text>
-                  <text x={15} y={150} textAnchor="middle" className="text-xs">
-                    BPM
-                  </text>
-                </svg>
-              </div>
-            </div>
+            <BpmDiffVisualizer
+              sectionTitle={`Différence de BPM entre les modèles (Sortie de test #${selectedTestRide})`}
+              pointChartTitle="Différence point par point (Modèle A - Modèle B)"
+              pointSeries={pointDiffSeries}
+              pointXAxisLabel="Temps (min)"
+              summaryChartTitle={
+                applyToAllRides && summaryDiffRows.length > 0
+                  ? "Différences moyennes de BPM par sortie"
+                  : undefined
+              }
+              summarySubtitle={
+                applyToAllRides && summaryDiffRows.length > 0
+                  ? "Moyenne des différences : (Modèle A - Modèle B) / nombre de points"
+                  : undefined
+              }
+              summaryRows={
+                applyToAllRides && summaryDiffRows.length > 0
+                  ? summaryDiffRows
+                  : undefined
+              }
+            />
           )}
-
-          {/* All Rides Diffs Chart */}
-          {applyToAllRides &&
-            allRidesDiffs &&
-            Array.isArray(allRidesDiffs) &&
-            allRidesDiffs.length > 0 && (
-              <div className={commonPipelineStyles.card}>
-                <h2 className={commonPipelineStyles.sectionTitle}>
-                  Différences moyennes de BPM par sortie
-                </h2>
-                <p className={commonPipelineStyles.bodyText}>
-                  Moyenne des différences : (Modèle A - Modèle B) / nombre de
-                  points
-                </p>
-                <div className="rounded-2xl border border-[#d6e1ee] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.14)]">
-                  <svg width={900} height={400} className="bg-transparent">
-                    <title>Diff BPM moyennes par sortie</title>
-                    {(() => {
-                      const rides = allRidesDiffs;
-                      const diffs = rides.map((r) => r.mean_bpm_diff);
-                      const minDiff = Math.min(...diffs);
-                      const maxDiff = Math.max(...diffs);
-                      const pad = Math.max(1, (maxDiff - minDiff) * 0.15 || 1);
-                      const yMin = minDiff - pad;
-                      const yMax = maxDiff + pad;
-                      const yRange = Math.max(1e-9, yMax - yMin);
-                      const xMin = Math.min(...rides.map((r) => r.ride_index));
-                      const xMax = Math.max(...rides.map((r) => r.ride_index));
-                      const xRange = Math.max(1, xMax - xMin);
-
-                      const scaleX = (rideIndex: number) =>
-                        75 + ((rideIndex - xMin) / xRange) * 750;
-                      const scaleY = (value: number) =>
-                        350 - ((value - yMin) / yRange) * 300;
-
-                      const sortedRides = [...rides].sort(
-                        (a, b) => a.ride_index - b.ride_index,
-                      );
-
-                      const linePath = sortedRides
-                        .map((ride, idx) => {
-                          const x = scaleX(ride.ride_index);
-                          const y = scaleY(ride.mean_bpm_diff);
-                          return `${idx === 0 ? "M" : "L"} ${x} ${y}`;
-                        })
-                        .join(" ");
-
-                      const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => {
-                        const value = yMin + t * (yMax - yMin);
-                        return { value, y: scaleY(value) };
-                      });
-
-                      const xTicks = sortedRides.map((ride) => ({
-                        value: ride.ride_index,
-                        x: scaleX(ride.ride_index),
-                      }));
-
-                      return (
-                        <>
-                          {/* Grid and axes */}
-                          {yTicks.map((tick) => (
-                            <line
-                              key={`all-hgrid-${tick.value.toFixed(2)}`}
-                              x1={75}
-                              y1={tick.y}
-                              x2={825}
-                              y2={tick.y}
-                              stroke="#cfdbe8"
-                              strokeWidth="1"
-                            />
-                          ))}
-
-                          <line
-                            x1={75}
-                            y1={50}
-                            x2={75}
-                            y2={350}
-                            stroke="#001d3d"
-                            strokeWidth="2"
-                          />
-                          <line
-                            x1={75}
-                            y1={350}
-                            x2={825}
-                            y2={350}
-                            stroke="#001d3d"
-                            strokeWidth="2"
-                          />
-
-                          {/* Y tick labels */}
-                          {yTicks.map((tick) => (
-                            <text
-                              key={`all-y-label-${tick.value.toFixed(2)}`}
-                              x={65}
-                              y={tick.y + 4}
-                              textAnchor="end"
-                              className="text-xs text-[#335372]"
-                            >
-                              {tick.value.toFixed(1)}
-                            </text>
-                          ))}
-
-                          {/* Connected line */}
-                          <path
-                            d={linePath}
-                            fill="none"
-                            stroke="#ffc300"
-                            strokeWidth="2.5"
-                          />
-
-                          {/* Points + value labels */}
-                          {sortedRides.map((ride) => {
-                            const x = scaleX(ride.ride_index);
-                            const y = scaleY(ride.mean_bpm_diff);
-                            return (
-                              <g key={`point-${ride.ride_index}`}>
-                                <circle cx={x} cy={y} r={4} fill="#ffd60a" />
-                                <text
-                                  x={x + 6}
-                                  y={y - 6}
-                                  className="text-xs font-semibold fill-[#001d3d]"
-                                >
-                                  {ride.mean_bpm_diff.toFixed(2)}
-                                </text>
-                              </g>
-                            );
-                          })}
-
-                          {/* X tick labels */}
-                          {xTicks.map((tick) => (
-                            <text
-                              key={`all-x-label-${tick.value}`}
-                              x={tick.x}
-                              y={366}
-                              textAnchor="middle"
-                              className="text-xs text-[#335372]"
-                            >
-                              {tick.value}
-                            </text>
-                          ))}
-
-                          {/* Labels */}
-                          <text
-                            x={450}
-                            y={380}
-                            textAnchor="middle"
-                            className="text-xs font-semibold fill-[#001d3d]"
-                          >
-                            Numéro de sortie
-                          </text>
-                          <text
-                            x={20}
-                            y={200}
-                            textAnchor="middle"
-                            transform="rotate(-90 20 200)"
-                            className="text-xs font-semibold fill-[#001d3d]"
-                          >
-                            Valeur BPM
-                          </text>
-                        </>
-                      );
-                    })()}
-                  </svg>
-                </div>
-
-                {/* Rides Differences Table */}
-                <div
-                  className={predictionPageStyles.tableWrapper}
-                  style={{ marginTop: "20px" }}
-                >
-                  <table className={predictionPageStyles.table}>
-                    <thead>
-                      <tr className={predictionPageStyles.tableHeadRow}>
-                        <th className={predictionPageStyles.tableHeaderCell}>
-                          Sortie
-                        </th>
-                        <th className={predictionPageStyles.tableHeaderCell}>
-                          Date/Heure
-                        </th>
-                        <th className={predictionPageStyles.tableHeaderCell}>
-                          Points
-                        </th>
-                        <th className={predictionPageStyles.tableHeaderCell}>
-                          Δ BPM moyen
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(
-                        allRidesDiffs as Array<{
-                          ride_index: number;
-                          datetime: string;
-                          n_points: number;
-                          mean_bpm_diff: number;
-                        }>
-                      ).map((ride) => (
-                        <tr
-                          key={`ride-${ride.ride_index}`}
-                          className={predictionPageStyles.tableRow}
-                        >
-                          <td className={predictionPageStyles.tableCell}>
-                            {ride.ride_index}
-                          </td>
-                          <td className={predictionPageStyles.tableCell}>
-                            {ride.datetime}
-                          </td>
-                          <td className={predictionPageStyles.tableCell}>
-                            {ride.n_points}
-                          </td>
-                          <td
-                            className={predictionPageStyles.tableCell}
-                            style={{
-                              color:
-                                ride.mean_bpm_diff >= 0 ? "#3b82f6" : "#ef4444",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            {ride.mean_bpm_diff.toFixed(2)} BPM
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
         </div>
       )}
     </div>
