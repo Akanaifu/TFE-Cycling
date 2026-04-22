@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
@@ -94,13 +93,6 @@ export default function LoginForm() {
             {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
-
-        <p className={authPageStyles.switchText}>
-          Pas encore de compte ?{" "}
-          <Link href="/register" className={authPageStyles.switchLink}>
-            Cree un compte
-          </Link>
-        </p>
       </div>
     </div>
   );

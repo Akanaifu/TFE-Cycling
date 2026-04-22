@@ -2,9 +2,11 @@ import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
 const connectSrc = ["'self'", "https:", "data:", "blob:"];
+const scriptSrc = ["'self'"];
 
 if (isDevelopment) {
   connectSrc.push("http://localhost:8000", "http://127.0.0.1:8000");
+  scriptSrc.push("'unsafe-inline'", "'unsafe-eval'");
 }
 
 const securityHeaders = [
@@ -15,7 +17,7 @@ const securityHeaders = [
       "base-uri 'self'; " +
       "frame-ancestors 'none'; " +
       "object-src 'none'; " +
-      "script-src 'self'; " +
+      `script-src ${scriptSrc.join(" ")}; ` +
       "style-src 'self' 'unsafe-inline'; " +
       "img-src 'self' data: blob: https:; " +
       `connect-src ${connectSrc.join(" ")}; ` +

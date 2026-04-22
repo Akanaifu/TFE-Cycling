@@ -1,24 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   authPageStyles,
   commonPipelineStyles,
 } from "../components/pipelineStyles";
 
 export default function Register() {
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    const checkAccess = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/auth/me`, {
+          credentials: "include",
+        });
+        if (!response.ok) {
+          setIsAdmin(false);
+          return;
+        }
+
+        const payload = await response.json();
+        const role = String(payload?.user?.role ?? "").toLowerCase();
+        setIsAdmin(role === "admin");
+      } catch {
+        setIsAdmin(false);
+      } finally {
+        setCheckingAccess(false);
+      }
+    };
+
+    checkAccess();
+  }, [apiUrl]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,10 +85,11 @@ export default function Register() {
 
       await response.json();
       setSuccess(true);
-      // Redirect after 1 second
-      setTimeout(() => {
-        window.location.href = "/strava";
-      }, 1000);
+
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setDisplayName("");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Erreur lors de l'enregistrement",
@@ -75,15 +99,45 @@ export default function Register() {
     }
   };
 
+  if (checkingAccess) {
+    return (
+      <div className={commonPipelineStyles.pageContainer}>
+        <div className={authPageStyles.wrapper}>
+          <p className={authPageStyles.subtitle}>
+            Vérification des permissions...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className={commonPipelineStyles.pageContainer}>
+        <div className={authPageStyles.wrapper}>
+          <h1 className={authPageStyles.title}>Accès refusé</h1>
+          <p className={authPageStyles.subtitle}>
+            Seuls les administrateurs peuvent créer un compte.
+          </p>
+          <p className={authPageStyles.switchText}>
+            <Link href="/login" className={authPageStyles.switchLink}>
+              Retour à la connexion
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (success) {
     return (
       <div className={commonPipelineStyles.pageContainer}>
-        <div className="rounded-md border border-emerald-300 bg-emerald-50 p-6 text-center">
+        <div className="rounded-md border border-emerald-300 bg-emerald-50 p-6 text-center text-[#001d3d]">
           <h2 className="text-lg font-bold text-emerald-900">
             Compte créé avec succès !
           </h2>
           <p className="mt-2 text-emerald-700">
-            Redirection vers le pipeline Strava...
+            Le compte est prêt. Vous pouvez en créer un autre si nécessaire.
           </p>
         </div>
       </div>
@@ -95,7 +149,7 @@ export default function Register() {
       <div className={authPageStyles.wrapper}>
         <h1 className={authPageStyles.title}>Créer un compte</h1>
         <p className={authPageStyles.subtitle}>
-          Cree ton compte puis connecte ton Strava.
+          Création de compte administrateur.
         </p>
 
         {error && <div className={authPageStyles.errorBox}>{error}</div>}
@@ -161,13 +215,6 @@ export default function Register() {
             {loading ? "Création en cours..." : "Créer le compte"}
           </button>
         </form>
-
-        <p className={authPageStyles.switchText}>
-          Tu as déjà un compte ?{" "}
-          <Link href="/login" className={authPageStyles.switchLink}>
-            Se connecter
-          </Link>
-        </p>
       </div>
     </div>
   );
