@@ -1,11 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import BpmDiffVisualizer from "./BpmDiffVisualizer";
 import CyclistSelector from "./CyclistSelector";
 import PredictionChart from "./PredictionChart";
 import RideSelector from "./RideSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
 import { commonPipelineStyles, predictionPageStyles } from "./pipelineStyles";
+
+const toNumberOrNull = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
 
 interface AuthUser {
   id: string;
@@ -41,13 +53,10 @@ export default function PipelineRunner() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PipelineResponse | null>(null);
   const [selectedRideIndex, setSelectedRideIndex] = useState(0);
-  const [email, setEmail] = useState("shapunaifu_athlete@strava.local");
-  const [password, setPassword] = useState("");
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [loadingLogin, setLoadingLogin] = useState(false);
   const [maxTrainRideIndex, setMaxTrainRideIndex] = useState(1);
+  const [selectedDiffModel, setSelectedDiffModel] = useState<string>("");
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -71,46 +80,6 @@ export default function PipelineRunner() {
 
     fetchMe();
   }, [apiUrl]);
-
-  const handleLogin = async () => {
-    setLoadingLogin(true);
-    setAuthError(null);
-    try {
-      const response = await fetch(`${apiUrl}/auth/login`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.detail || `HTTP ${response.status}`);
-      }
-
-      setAuthToken("cookie-session");
-      setAuthUser(payload.user as AuthUser);
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Erreur inconnue");
-    } finally {
-      setLoadingLogin(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${apiUrl}/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
-    } finally {
-      setAuthToken(null);
-      setAuthUser(null);
-      setResult(null);
-      setError(null);
-    }
-  };
 
   const handleRun = async () => {
     if (!authToken) {
@@ -179,6 +148,108 @@ export default function PipelineRunner() {
   const trainingSectionIndex = showCyclistSelection ? 2 : 1;
   const configSectionIndex = showCyclistSelection ? 3 : 2;
 
+  const modelDiffVisualizations = useMemo(() => {
+    if (!result || !currentRide) {
+      return [] as Array<{
+        modelKey: string;
+        pointSeries: Array<{ x: number; diff: number }>;
+        summaryRows: Array<{
+          rideIndex: number;
+          datetime: string;
+          nPoints: number;
+          meanDiff: number;
+        }>;
+      }>;
+    }
+
+    return result.models_computed
+      .map((modelKey) => {
+        const pointSeries = currentRide.data
+          .map((point) => {
+            const tMin = toNumberOrNull(point.t_min);
+            const actual = toNumberOrNull(point.hr);
+            const predicted = toNumberOrNull(point[modelKey]);
+            if (tMin === null || actual === null || predicted === null) {
+              return null;
+            }
+            return { x: tMin, diff: predicted - actual };
+          })
+          .filter((item): item is { x: number; diff: number } => item !== null);
+
+        const summaryRows = result.rides
+          .map((ride, idx) => {
+            const diffs = ride.data
+              .map((point) => {
+                const actual = toNumberOrNull(point.hr);
+                const predicted = toNumberOrNull(point[modelKey]);
+                if (actual === null || predicted === null) {
+                  return null;
+                }
+                return predicted - actual;
+              })
+              .filter((value): value is number => value !== null);
+
+            if (diffs.length === 0) {
+              return null;
+            }
+
+            const meanDiff =
+              diffs.reduce((sum, value) => sum + value, 0) / diffs.length;
+
+            return {
+              rideIndex: idx + 1,
+              datetime: ride.datetime,
+              nPoints: ride.n_points,
+              meanDiff,
+            };
+          })
+          .filter(
+            (
+              item,
+            ): item is {
+              rideIndex: number;
+              datetime: string;
+              nPoints: number;
+              meanDiff: number;
+            } => item !== null,
+          );
+
+        return {
+          modelKey,
+          pointSeries,
+          summaryRows,
+        };
+      })
+      .filter(
+        (modelViz) =>
+          modelViz.pointSeries.length > 0 || modelViz.summaryRows.length > 0,
+      );
+  }, [currentRide, result]);
+
+  useEffect(() => {
+    if (modelDiffVisualizations.length === 0) {
+      setSelectedDiffModel("");
+      return;
+    }
+
+    if (
+      !selectedDiffModel ||
+      !modelDiffVisualizations.some(
+        (modelViz) => modelViz.modelKey === selectedDiffModel,
+      )
+    ) {
+      setSelectedDiffModel(modelDiffVisualizations[0].modelKey);
+    }
+  }, [modelDiffVisualizations, selectedDiffModel]);
+
+  const selectedModelDiffVisualization = useMemo(
+    () =>
+      modelDiffVisualizations.find(
+        (modelViz) => modelViz.modelKey === selectedDiffModel,
+      ) ?? modelDiffVisualizations[0],
+    [modelDiffVisualizations, selectedDiffModel],
+  );
+
   const handleTrainRideChange = (value: string) => {
     const parsed = Number.parseInt(value, 10);
     if (Number.isNaN(parsed)) {
@@ -200,7 +271,6 @@ export default function PipelineRunner() {
 
   return (
     <div className={commonPipelineStyles.pageContainer}>
-      {/* Header */}
       <div>
         <h1 className={commonPipelineStyles.pageTitle}>
           Pipeline de Prédictions HR
@@ -209,61 +279,6 @@ export default function PipelineRunner() {
           Configurez le modèle d&apos;entrainement puis lancez l&apos;analyse
           prédictive
         </p>
-      </div>
-
-      <div className={`${commonPipelineStyles.card} space-y-4`}>
-        <h2 className={commonPipelineStyles.sectionTitleNoMargin}>
-          Authentification
-        </h2>
-        <p className={commonPipelineStyles.bodyText}>
-          Connecte-toi pour charger et analyser tes rides (routes protegees par
-          JWT).
-        </p>
-
-        {!authToken ? (
-          <div className={predictionPageStyles.authGrid}>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              className={commonPipelineStyles.textInput}
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mot de passe"
-              className={commonPipelineStyles.textInput}
-            />
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={loadingLogin}
-              className={commonPipelineStyles.buttonDark}
-            >
-              {loadingLogin ? "Connexion..." : "Se connecter"}
-            </button>
-          </div>
-        ) : (
-          <div className={commonPipelineStyles.authSuccessBanner}>
-            <p>
-              Connecte en tant que{" "}
-              {authUser?.display_name || authUser?.email || email}
-            </p>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className={commonPipelineStyles.buttonDarkCompact}
-            >
-              Se deconnecter
-            </button>
-          </div>
-        )}
-
-        {authError && (
-          <p className={commonPipelineStyles.errorText}>Erreur: {authError}</p>
-        )}
       </div>
 
       {showCyclistSelection && (
@@ -280,7 +295,6 @@ export default function PipelineRunner() {
         </div>
       )}
 
-      {/* Section 2: Training Ride Preview */}
       <div className={commonPipelineStyles.card}>
         <h2 className={commonPipelineStyles.sectionTitle}>
           {trainingSectionIndex}. Ride d&apos;entraînement
@@ -322,13 +336,11 @@ export default function PipelineRunner() {
         />
       </div>
 
-      {/* Section 3: Model Configuration & Run */}
       <div className={`${commonPipelineStyles.card} space-y-4`}>
         <h2 className={commonPipelineStyles.sectionTitle}>
           {configSectionIndex}. Configuration et exécution
         </h2>
 
-        {/* Model Selection */}
         <div>
           <p className={predictionPageStyles.modelLabel}>Modèles à calculer</p>
           <div className={predictionPageStyles.modelGrid}>
@@ -351,7 +363,6 @@ export default function PipelineRunner() {
           </div>
         </div>
 
-        {/* Run Button */}
         <button
           type="button"
           onClick={handleRun}
@@ -361,7 +372,6 @@ export default function PipelineRunner() {
           {loading ? "Exécution en cours..." : "Exécuter le pipeline"}
         </button>
 
-        {/* Error Message */}
         {error && (
           <div className={predictionPageStyles.errorPanel}>
             <p className={predictionPageStyles.errorPanelTitle}>Erreur:</p>
@@ -370,10 +380,8 @@ export default function PipelineRunner() {
         )}
       </div>
 
-      {/* Results Panel */}
       {result && (
         <div className={commonPipelineStyles.sectionStack}>
-          {/* Results Summary */}
           <div className={commonPipelineStyles.card}>
             <h2 className={commonPipelineStyles.sectionTitle}>
               Résultats de l&apos;analyse
@@ -406,21 +414,66 @@ export default function PipelineRunner() {
             </div>
           </div>
 
-          {/* Ride Selector */}
           <RideSelector
             rides={result.rides}
             selectedIndex={selectedRideIndex}
             onSelectRide={setSelectedRideIndex}
           />
 
-          {/* Charts and Data */}
           {currentRide && (
             <div className={commonPipelineStyles.sectionStack}>
-              {/* Prediction Chart */}
               <PredictionChart
                 rideData={currentRide}
                 models={result.models_computed}
               />
+
+              {selectedModelDiffVisualization && (
+                <div className="space-y-3">
+                  {modelDiffVisualizations.length > 1 && (
+                    <div>
+                      <label
+                        htmlFor="diff-model-select"
+                        className={commonPipelineStyles.formLabel}
+                      >
+                        Modèle affiché pour les différences BPM
+                      </label>
+                      <select
+                        id="diff-model-select"
+                        value={selectedDiffModel}
+                        onChange={(e) => setSelectedDiffModel(e.target.value)}
+                        className={`${commonPipelineStyles.textInput} md:w-72`}
+                      >
+                        {modelDiffVisualizations.map((modelViz) => {
+                          const modelLabel =
+                            availableModels.find(
+                              (model) => model.id === modelViz.modelKey,
+                            )?.label ?? modelViz.modelKey;
+
+                          return (
+                            <option
+                              key={modelViz.modelKey}
+                              value={modelViz.modelKey}
+                            >
+                              {modelLabel}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
+
+                  <BpmDiffVisualizer
+                    key={selectedModelDiffVisualization.modelKey}
+                    sectionTitle={`${configSectionIndex + 1}. Différences BPM (prédiction vs réel)`}
+                    sectionSubtitle={`Modèle analysé: ${selectedModelDiffVisualization.modelKey}. Différence calculée par point: prédiction - fréquence cardiaque réelle.`}
+                    pointChartTitle={`Ride ${selectedRideIndex + 1} - Différence point par point (${selectedModelDiffVisualization.modelKey})`}
+                    pointSeries={selectedModelDiffVisualization.pointSeries}
+                    pointXAxisLabel="Temps (min)"
+                    summaryChartTitle={`Graphe résumé des différences moyennes par ride (${selectedModelDiffVisualization.modelKey})`}
+                    summaryRows={selectedModelDiffVisualization.summaryRows}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

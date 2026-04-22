@@ -10,17 +10,42 @@ const navigationItems = [
   { href: "/fit-import", label: "Import FIT" },
   { href: "/compare-models", label: "Comparaison" },
   { href: "/strava", label: "Strava" },
+  { href: "/register", label: "Nouveau compte" },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const isAuthRoute = pathname === "/login" || pathname === "/register";
+  const isAuthRoute = pathname === "/login" || pathname === "/login/";
 
   useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+
+    const fetchCurrentUserRole = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/auth/me`, {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          setIsAdmin(false);
+          return;
+        }
+
+        const payload = await response.json();
+        const role = String(payload?.user?.role ?? "").toLowerCase();
+        setIsAdmin(role === "admin");
+      } catch {
+        setIsAdmin(false);
+      }
+    };
+
+    fetchCurrentUserRole();
+
     const handlePointerDown = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
         setMenuOpen(false);
@@ -98,29 +123,31 @@ export default function Navbar() {
 
             {menuOpen && (
               <div className="absolute right-0 mt-3 w-64 overflow-hidden rounded-2xl border border-[#003566] bg-[#000814] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
-                {navigationItems.map((item) => {
-                  const isActive =
-                    item.href === "/"
-                      ? pathname === "/"
-                      : pathname === item.href ||
-                        pathname.startsWith(`${item.href}/`);
+                {navigationItems
+                  .filter((item) => item.href !== "/register" || isAdmin)
+                  .map((item) => {
+                    const isActive =
+                      item.href === "/"
+                        ? pathname === "/"
+                        : pathname === item.href ||
+                          pathname.startsWith(`${item.href}/`);
 
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      aria-current={isActive ? "page" : undefined}
-                      onClick={() => setMenuOpen(false)}
-                      className={`block rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
-                        isActive
-                          ? "bg-[#ffc300] text-[#000814]"
-                          : "text-[#fff8d6] hover:bg-[#001d3d] hover:text-[#ffd60a]"
-                      }`}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        aria-current={isActive ? "page" : undefined}
+                        onClick={() => setMenuOpen(false)}
+                        className={`block rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+                          isActive
+                            ? "bg-[#ffc300] text-[#000814]"
+                            : "text-[#fff8d6] hover:bg-[#001d3d] hover:text-[#ffd60a]"
+                        }`}
+                      >
+                        {item.label}
+                      </Link>
+                    );
+                  })}
               </div>
             )}
           </div>
