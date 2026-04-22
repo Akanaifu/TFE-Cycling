@@ -653,13 +653,14 @@ async def strava_get_activities(
 
         persisted_activities: list[dict[str, object]] = []
         failed_activities = 0
+        activity_errors: list[str] = []
         athlete_id = int(account.get("athlete_id") or 0)
         if athlete_id <= 0:
             raise ValueError("No athlete_id available for current Strava account")
 
         for activity in activities:
+            activity_id = int(activity.get("id") or 0)
             try:
-                activity_id = int(activity.get("id") or 0)
                 if activity_id <= 0:
                     raise ValueError("Missing activity id")
 
@@ -671,10 +672,22 @@ async def strava_get_activities(
                     )
                 )
 
-                streams = strava_service.get_activity_streams(
-                    access_token=access_token,
-                    activity_id=activity_id,
-                )
+                try:
+                    streams = strava_service.get_activity_streams(
+                        access_token=access_token,
+                        activity_id=activity_id,
+                    )
+                except ValueError as exc:
+                    logger.warning(
+                        "Strava streams fetch failed for activity %s: %s",
+                        activity_id,
+                        exc,
+                    )
+                    activity_errors.append(
+                        f"activity {activity_id}: streams fetch failed"
+                    )
+                    streams = {}
+
                 ride_df = strava_service.build_activity_dataframe(
                     activity=activity,
                     streams=streams,
@@ -686,10 +699,18 @@ async def strava_get_activities(
                 activity_with_path = dict(activity)
                 activity_with_path["file_path"] = stored_file_name
                 persisted_activities.append(activity_with_path)
-            except Exception:
+            except (ValueError, RuntimeError, OSError, TypeError) as exc:
                 failed_activities += 1
+                activity_errors.append(f"activity {activity_id}: {exc}")
+                logger.exception("Failed to persist Strava activity %s", activity_id)
 
         if not persisted_activities:
+            error_summary = "; ".join(activity_errors[:3])
+            if error_summary:
+                raise ValueError(
+                    "Unable to persist any Strava activities. "
+                    f"Sample errors: {error_summary}"
+                )
             raise ValueError("Unable to persist any Strava activities")
 
         persistence = database_service.upsert_rides_from_strava_activities(
@@ -710,10 +731,16 @@ async def strava_get_activities(
             "skipped_count": int(persistence.get("skipped_count", 0)),
             "failed_count": failed_activities,
         }
-    except Exception as exc:
+    except ValueError as exc:
         logger.exception("Unable to fetch Strava activities")
         raise HTTPException(
             status_code=400,
+            detail=str(exc),
+        ) from exc
+    except (RuntimeError, OSError, TypeError) as exc:
+        logger.exception("Unable to fetch Strava activities")
+        raise HTTPException(
+            status_code=500,
             detail="Unable to fetch Strava activities.",
         ) from exc
 

@@ -195,7 +195,8 @@ def _get_mapped_cyclist_for_user(cur: Any, user_id: str) -> str | None:
     row = cur.fetchone()
     if not row:
         return None
-    return str(row[0]).strip()
+    cyclist = row["cyclist"] if isinstance(row, dict) else row[0]
+    return str(cyclist or "").strip()
 
 
 def _legacy_cyclists_for_user(cur: Any, user_id: str) -> list[str]:
