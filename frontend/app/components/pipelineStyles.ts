@@ -61,8 +61,9 @@ export const predictionPageStyles = {
   tableHeadRow: "border-b border-[#00508f]/80 bg-[#000814]/85",
   tableHeaderCell:
     "px-4 py-2 text-left text-sm font-bold tracking-wide text-[#ffd60a]",
-  tableRow: "border-b border-[#003566]/60 hover:bg-[#001d3d]/70",
-  tableCell: "px-4 py-2 font-mono text-xs text-[#dbeafe]",
+  tableRow: "group border-b border-[#003566]/60 hover:bg-[#001d3d]/70",
+  tableCell:
+    "px-4 py-2 font-mono text-xs text-[#001d3d]/70 transition-colors group-hover:text-[#fff8d6]",
   tableFooter: "mt-2 text-xs text-[#9fb4d2]",
 };
 
