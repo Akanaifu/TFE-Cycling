@@ -767,6 +767,8 @@ async def get_training_ride(
     except HTTPException:
         raise
     except Exception as exc:
+        if "No readable pickle files found" in str(exc):
+            raise HTTPException(status_code=400, detail="Le dossier est vide.") from exc
         raise HTTPException(
             status_code=400, detail=f"Failed to get ride: {exc}"
         ) from exc

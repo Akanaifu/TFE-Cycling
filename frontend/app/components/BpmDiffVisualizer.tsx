@@ -97,11 +97,16 @@ export default function BpmDiffVisualizer({
               const scaleY = (value: number) =>
                 350 - ((value - yMin) / yRange) * 300;
 
+              const isValid = (diff: number) => diff >= -20 && diff <= 20;
+
               const linePath = sorted
                 .map((ride, idx) => {
+                  if (!isValid(ride.meanDiff)) return "";
                   const x = scaleX(idx);
                   const y = scaleY(ride.meanDiff);
-                  return `${idx === 0 ? "M" : "L"} ${x} ${y}`;
+                  const prevValid =
+                    idx > 0 && isValid(sorted[idx - 1].meanDiff);
+                  return `${prevValid ? "L" : "M"} ${x} ${y}`;
                 })
                 .join(" ");
 
@@ -163,6 +168,7 @@ export default function BpmDiffVisualizer({
                   />
 
                   {sorted.map((ride, idx) => {
+                    if (!isValid(ride.meanDiff)) return null;
                     const x = scaleX(idx);
                     const y = scaleY(ride.meanDiff);
                     return (
@@ -262,11 +268,18 @@ export default function BpmDiffVisualizer({
                       <td
                         className={predictionPageStyles.tableCell}
                         style={{
-                          color: ride.meanDiff >= 0 ? "#3b82f6" : "#ef4444",
+                          color:
+                            ride.meanDiff > 20 || ride.meanDiff < -20
+                              ? "#991b1b"
+                              : ride.meanDiff < 0
+                                ? "#ef4444"
+                                : "#3b82f6",
                           fontWeight: "bold",
                         }}
                       >
-                        {ride.meanDiff.toFixed(2)} BPM
+                        {ride.meanDiff > 20 || ride.meanDiff < -20
+                          ? "error"
+                          : `${ride.meanDiff.toFixed(2)} BPM`}
                       </td>
                     </tr>
                   ))}
