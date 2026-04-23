@@ -432,7 +432,7 @@ def upsert_strava_account_for_user(
 def get_strava_account_for_user(user_id: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, scope
+        SELECT id, user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, scope, created_at, updated_at
         FROM strava_accounts
         WHERE user_id = %s
         LIMIT 1
@@ -442,6 +442,34 @@ def get_strava_account_for_user(user_id: str) -> dict[str, Any] | None:
             cur.execute(query, (user_id,))
             row = cur.fetchone()
             return dict(row) if row else None
+
+
+def delete_strava_account_for_user(user_id: str) -> int:
+    """Delete Strava account row for a user and return number of deleted rows."""
+    psycopg, _ = _get_psycopg_modules()
+    query = "DELETE FROM strava_accounts WHERE user_id = %s"
+    with psycopg.connect(get_database_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (user_id,))
+            return int(cur.rowcount or 0)
+
+
+def get_stale_strava_accounts(
+    *, updated_before: datetime, limit: int = 200
+) -> list[dict[str, Any]]:
+    """Return stale Strava account rows based on updated_at threshold."""
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        SELECT id, user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, updated_at
+        FROM strava_accounts
+        WHERE updated_at < %s
+        ORDER BY updated_at ASC
+        LIMIT %s
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (updated_before, int(limit)))
+            return [dict(row) for row in cur.fetchall()]
 
 
 def update_strava_account_tokens(

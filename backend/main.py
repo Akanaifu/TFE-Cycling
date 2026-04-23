@@ -6,7 +6,7 @@ Exposes REST endpoints for running HR/power prediction models on cycling rides.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 from pathlib import Path
@@ -49,6 +49,8 @@ AUTH_RATE_LIMIT_MAX_ATTEMPTS = 8
 _auth_attempts: dict[str, deque[float]] = defaultdict(deque)
 MAX_FIT_UPLOAD_FILES = 20
 MAX_FIT_UPLOAD_BYTES = 20 * 1024 * 1024
+_strava_last_gc_ts = 0.0
+STRAVA_AUTO_DEAUTH_GC_INTERVAL_SECONDS = 3600
 
 
 @app.on_event("startup")
@@ -277,6 +279,105 @@ def _clear_auth_cookie(response: Response) -> None:
     )
 
 
+def _get_strava_auto_deauth_days() -> int:
+    raw = os.getenv("STRAVA_AUTO_DEAUTH_DAYS", "90").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 90
+    return max(0, value)
+
+
+def _deauthorize_and_clear_user_strava(user_id: str) -> dict[str, bool]:
+    account = database_service.get_strava_account_for_user(user_id)
+    if not account:
+        return {"had_account": False, "remote_revoked": False}
+
+    remote_revoked = False
+    access_token_enc = str(account.get("access_token_enc") or "").strip()
+    if access_token_enc:
+        try:
+            access_token = decrypt_secret_fernet(access_token_enc)
+            strava_service.deauthorize_access_token(access_token)
+            remote_revoked = True
+        except (RuntimeError, ValueError, OSError, TypeError) as exc:
+            logger.warning(
+                "Strava remote deauthorization failed for user %s: %s", user_id, exc
+            )
+
+    database_service.delete_strava_account_for_user(user_id)
+    return {"had_account": True, "remote_revoked": remote_revoked}
+
+
+def _is_account_stale(account: dict, max_age_days: int) -> bool:
+    if max_age_days <= 0:
+        return False
+    updated_at = account.get("updated_at")
+    if not isinstance(updated_at, datetime):
+        return False
+    now_utc = datetime.now(timezone.utc)
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return updated_at <= (now_utc - timedelta(days=max_age_days))
+
+
+def _enforce_user_strava_ttl(user_id: str, account: dict | None = None) -> bool:
+    max_age_days = _get_strava_auto_deauth_days()
+    if max_age_days <= 0:
+        return False
+
+    current_account = account or database_service.get_strava_account_for_user(user_id)
+    if not current_account:
+        return False
+
+    if not _is_account_stale(current_account, max_age_days=max_age_days):
+        return False
+
+    result = _deauthorize_and_clear_user_strava(user_id)
+    logger.info(
+        "Auto-deauthorized stale Strava account for user %s (age>%sd, remote_revoked=%s)",
+        user_id,
+        max_age_days,
+        result["remote_revoked"],
+    )
+    return True
+
+
+def _run_strava_auto_deauth_gc() -> None:
+    global _strava_last_gc_ts
+    now_ts = time.time()
+    if now_ts - _strava_last_gc_ts < STRAVA_AUTO_DEAUTH_GC_INTERVAL_SECONDS:
+        return
+    _strava_last_gc_ts = now_ts
+
+    max_age_days = _get_strava_auto_deauth_days()
+    if max_age_days <= 0:
+        return
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    try:
+        stale_accounts = database_service.get_stale_strava_accounts(
+            updated_before=cutoff,
+            limit=200,
+        )
+    except (RuntimeError, ValueError, OSError, TypeError) as exc:
+        logger.warning("Unable to list stale Strava accounts: %s", exc)
+        return
+
+    for account in stale_accounts:
+        user_id = str(account.get("user_id") or "").strip()
+        if not user_id:
+            continue
+        try:
+            _deauthorize_and_clear_user_strava(user_id)
+        except (RuntimeError, ValueError, OSError, TypeError) as exc:
+            logger.warning(
+                "Unable to auto-deauthorize stale Strava account for user %s: %s",
+                user_id,
+                exc,
+            )
+
+
 def _resolve_target_cyclist_for_fit_upload(
     user: dict, cyclist_from_form: str | None
 ) -> tuple[str, Path]:
@@ -496,8 +597,14 @@ async def strava_status(
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Expose Strava env readiness and user-level Strava account status."""
+    _run_strava_auto_deauth_gc()
+
     base_status = strava_service.get_strava_status()
-    account = database_service.get_strava_account_for_user(str(current_user["id"]))
+    current_user_id = str(current_user["id"])
+    account = database_service.get_strava_account_for_user(current_user_id)
+    auto_deauthorized = _enforce_user_strava_ttl(current_user_id, account=account)
+    if auto_deauthorized:
+        account = None
 
     athlete_id = account.get("athlete_id") if account else None
     expires_at = account.get("expires_at") if account else None
@@ -510,8 +617,33 @@ async def strava_status(
             "connected": has_db_tokens,
             "athlete_id": athlete_id,
             "expires_at": expires_at.isoformat() if expires_at else None,
+            "auto_deauthorized": auto_deauthorized,
+            "auto_deauth_days": _get_strava_auto_deauth_days(),
         },
     }
+
+
+@app.post("/strava/deauthorize")
+async def strava_deauthorize(
+    current_user: dict = Depends(auth_service.get_current_user),
+) -> dict:
+    """Revoke Strava access for current user and clear persisted tokens."""
+    try:
+        user_id = str(current_user["id"])
+        result = _deauthorize_and_clear_user_strava(user_id)
+        return {
+            "ok": True,
+            "result": {
+                "had_account": result["had_account"],
+                "remote_revoked": result["remote_revoked"],
+            },
+        }
+    except Exception as exc:
+        logger.exception("Unable to deauthorize Strava account")
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to deauthorize Strava account.",
+        ) from exc
 
 
 @app.get("/strava/auth-url")
@@ -602,10 +734,18 @@ async def strava_get_activities(
     Token refresh happens automatically if expired.
     """
     try:
+        _run_strava_auto_deauth_gc()
+
         settings = strava_service.get_strava_settings()
-        account = database_service.get_strava_account_for_user(str(current_user["id"]))
+        current_user_id = str(current_user["id"])
+        account = database_service.get_strava_account_for_user(current_user_id)
         if not account:
             raise ValueError("No Strava account connected for current user")
+
+        if _enforce_user_strava_ttl(current_user_id, account=account):
+            raise ValueError(
+                "Strava access expired automatically. Reconnect your account."
+            )
 
         tokens = {
             "access_token": decrypt_secret_fernet(str(account["access_token_enc"])),
@@ -629,7 +769,7 @@ async def strava_get_activities(
             new_tokens["athlete"] = tokens.get("athlete", {})
 
             database_service.update_strava_account_tokens(
-                user_id=str(current_user["id"]),
+                user_id=current_user_id,
                 access_token_enc=encrypt_secret_fernet(
                     str(new_tokens.get("access_token", ""))
                 ),
@@ -715,7 +855,7 @@ async def strava_get_activities(
             raise ValueError("Unable to persist any Strava activities")
 
         persistence = database_service.upsert_rides_from_strava_activities(
-            user_id=str(current_user["id"]),
+            user_id=current_user_id,
             strava_account_id=str(account["id"]),
             athlete_id=athlete_id,
             activities=persisted_activities,

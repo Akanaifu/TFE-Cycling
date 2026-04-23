@@ -23,6 +23,7 @@ from app.services.security import encrypt_secret_fernet
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
 API_BASE = "https://www.strava.com/api/v3"
+DEAUTHORIZE_URL = "https://www.strava.com/oauth/deauthorize"
 
 
 def _urlsafe_b64encode(raw: bytes) -> str:
@@ -366,6 +367,41 @@ def refresh_tokens(
 ) -> dict[str, Any]:
     """Public wrapper for Strava token refresh."""
     return _refresh_tokens(client_id, client_secret, refresh_token)
+
+
+def deauthorize_access_token(access_token: str) -> dict[str, Any]:
+    """Revoke a Strava access token via OAuth deauthorization endpoint."""
+    token = str(access_token or "").strip()
+    if not token:
+        raise ValueError("Missing access token for deauthorization")
+
+    request = Request(
+        DEAUTHORIZE_URL,
+        data=urlencode({"access_token": token}).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8")
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise ValueError(
+            f"Strava deauthorization failed (HTTP {exc.code}): {body}"
+        ) from exc
+    except URLError as exc:
+        raise ValueError(f"Strava deauthorization network error: {exc}") from exc
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid deauthorization response from Strava") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected deauthorization payload format")
+
+    return payload
 
 
 def _http_get_json(url: str, headers: dict[str, str] | None = None) -> Any:

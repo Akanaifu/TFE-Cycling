@@ -18,6 +18,8 @@ type StravaStatus = {
   connected?: boolean;
   athlete_id?: number | null;
   expires_at?: string | null;
+  auto_deauthorized?: boolean;
+  auto_deauth_days?: number;
 };
 
 type ExchangeResult = {
@@ -51,10 +53,7 @@ type StravaActivity = {
 export default function StravaPipelineContent() {
   const { replace } = useRouter();
   const searchParams = useSearchParams();
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
   const autoExchangeDoneRef = useRef(false);
 
   const [status, setStatus] = useState<StravaStatus | null>(null);
@@ -75,6 +74,9 @@ export default function StravaPipelineContent() {
     null,
   );
   const [loadingActivities, setLoadingActivities] = useState(false);
+  const [loadingDeauthorize, setLoadingDeauthorize] = useState(false);
+  const [deauthorizeError, setDeauthorizeError] = useState<string | null>(null);
+  const [deauthorizeInfo, setDeauthorizeInfo] = useState<string | null>(null);
   const [selectedActivityLimit, setSelectedActivityLimit] = useState(10);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -383,6 +385,63 @@ export default function StravaPipelineContent() {
     }
   };
 
+  const handleDeauthorize = async () => {
+    if (!authToken) {
+      setDeauthorizeError("Connecte-toi avant de revoquer l'acces Strava.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Confirmer la revocation de l'acces Strava pour ce compte ?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setLoadingDeauthorize(true);
+    setDeauthorizeError(null);
+    setDeauthorizeInfo(null);
+
+    try {
+      const response = await fetch(`${apiUrl}/strava/deauthorize`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || `HTTP ${response.status}`);
+      }
+
+      const hadAccount = Boolean(payload?.result?.had_account);
+      const remoteRevoked = Boolean(payload?.result?.remote_revoked);
+      setDeauthorizeInfo(
+        hadAccount
+          ? remoteRevoked
+            ? "Acces Strava revoque et tokens locaux supprimes."
+            : "Tokens locaux supprimes. Revocation distante non confirmee."
+          : "Aucun compte Strava actif a revoquer.",
+      );
+
+      setExchangeResult(null);
+      setActivities([]);
+      setActivitiesSavedInfo(null);
+
+      const refreshedStatus = await fetch(`${apiUrl}/strava/status`, {
+        credentials: "include",
+      });
+      const refreshedPayload = await refreshedStatus.json();
+      if (refreshedStatus.ok) {
+        setStatus(refreshedPayload.status as StravaStatus);
+      }
+    } catch (err) {
+      setDeauthorizeError(
+        err instanceof Error ? err.message : "Erreur inconnue",
+      );
+    } finally {
+      setLoadingDeauthorize(false);
+    }
+  };
+
   const hasTokens = exchangeResult?.saved || status?.connected;
 
   if (!authChecked || !authToken) {
@@ -465,6 +524,12 @@ export default function StravaPipelineContent() {
                 <p>
                   Client Secret: {status.has_client_secret ? "OK" : "Manquant"}
                 </p>
+                {status.auto_deauthorized && (
+                  <p className="text-amber-700">
+                    L&apos;acces Strava a ete revoque automatiquement apres
+                    inactivite ({status.auto_deauth_days ?? 0} jours).
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -661,6 +726,37 @@ export default function StravaPipelineContent() {
                     </div>
                   </div>
                 )}
+
+                <div className={stravaPageStyles.oauthPanel}>
+                  <p className="mb-3">
+                    Revoque immediatement l&apos;acces Strava pour ce compte
+                    depuis l&apos;application.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDeauthorize}
+                    disabled={loadingDeauthorize || !status?.connected}
+                    className={stravaPageStyles.actionButton}
+                  >
+                    {loadingDeauthorize
+                      ? "Revocation en cours..."
+                      : "Revoquer l'acces Strava"}
+                  </button>
+                  {!status?.connected && (
+                    <p className="mt-2 text-sm text-[#dbeafe]/80">
+                      Aucun compte Strava actif n&apos;est actuellement
+                      connecte.
+                    </p>
+                  )}
+                  {deauthorizeError && (
+                    <p className={stravaPageStyles.inlineError}>
+                      Erreur: {deauthorizeError}
+                    </p>
+                  )}
+                  {deauthorizeInfo && (
+                    <p className="mt-2 text-green-700">{deauthorizeInfo}</p>
+                  )}
+                </div>
               </>
             )}
           </div>
