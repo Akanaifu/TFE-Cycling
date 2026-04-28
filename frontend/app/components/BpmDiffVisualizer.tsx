@@ -99,17 +99,6 @@ export default function BpmDiffVisualizer({
 
               const isValid = (diff: number) => diff >= -20 && diff <= 20;
 
-              const linePath = sorted
-                .map((ride, idx) => {
-                  if (!isValid(ride.meanDiff)) return "";
-                  const x = scaleX(idx);
-                  const y = scaleY(ride.meanDiff);
-                  const prevValid =
-                    idx > 0 && isValid(sorted[idx - 1].meanDiff);
-                  return `${prevValid ? "L" : "M"} ${x} ${y}`;
-                })
-                .join(" ");
-
               const yTicks = [0, 0.25, 0.5, 0.75, 1].map((tick) => {
                 const value = yMin + tick * (yMax - yMin);
                 return { value, y: scaleY(value) };
@@ -159,13 +148,6 @@ export default function BpmDiffVisualizer({
                       strokeDasharray="5,5"
                     />
                   )}
-
-                  <path
-                    d={linePath}
-                    fill="none"
-                    stroke="#ffc300"
-                    strokeWidth="2.5"
-                  />
 
                   {sorted.map((ride, idx) => {
                     if (!isValid(ride.meanDiff)) return null;

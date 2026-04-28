@@ -554,12 +554,16 @@ export default function StravaPipelineContent() {
             {authUrl && (
               <div className="mt-2 space-y-2">
                 <p className="break-all text-[#ffd60a]">{authUrl}</p>
-                <a href={authUrl} className={stravaPageStyles.openLink}>
+                <a
+                  href={authUrl}
+                  className={stravaPageStyles.openLink}
+                  target="_blank"
+                >
                   Ouvrir Strava
                 </a>
                 <p className="text-sm text-[#dbeafe]/80">
-                  Apres autorisation, Strava te redirige automatiquement sur
-                  cette page pour echanger le code.
+                  Apres autorisation, Strava te redirige vers mon portfolio pour
+                  récupérer le code d&apos;échange
                 </p>
               </div>
             )}
