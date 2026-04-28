@@ -128,9 +128,7 @@ export default function PipelineRunner() {
   };
 
   const availableModels = [
-    { id: "pred_hist", label: "Historique" },
     { id: "pred_default", label: "Régression simple" },
-    { id: "pred_no_fuite", label: "ARX sans fuite" },
     { id: "pred_arx_selected", label: "ARX sélectionné" },
   ];
 

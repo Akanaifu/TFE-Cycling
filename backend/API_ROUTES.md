@@ -39,6 +39,7 @@ La plupart des routes metier necessitent une session valide (`credentials: inclu
 - `GET /strava/auth-url`
 - `POST /strava/exchange-code`
 - `GET /strava/activities`
+- `POST /strava/deauthorize`
 
 ### Diagnostic
 
@@ -101,3 +102,5 @@ La plupart des routes metier necessitent une session valide (`credentials: inclu
 - Les chemins `dir_path` doivent pointer vers un cycliste (`../DB/rides/cyclistX`).
 - Les users non-admin sont limites a leur cycliste assigne.
 - Sur dossier vide (pas de PKL lisible), la ride preview retourne `Le dossier est vide.`.
+- `POST /strava/deauthorize` revoque le token Strava courant et supprime les tokens en base.
+- `STRAVA_AUTO_DEAUTH_DAYS` (defaut `90`) force une revocation automatique des comptes inactifs.
