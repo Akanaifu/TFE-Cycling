@@ -130,6 +130,7 @@ export default function PipelineRunner() {
   const availableModels = [
     { id: "pred_default", label: "Régression simple" },
     { id: "pred_arx_selected", label: "ARX sélectionné" },
+    { id: "pred_physio", label: "Prédiction physiologique" },
   ];
 
   const toggleModel = (modelId: string) => {
