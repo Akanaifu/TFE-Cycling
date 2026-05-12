@@ -41,11 +41,13 @@ export default function PredictionChart({
   // Extract data for plotting
   const timeData = rideData.data.map((d) => toNumberOrNull(d.t_min));
   const hrActual = rideData.data.map((d) => toNumberOrNull(d.hr));
+  const powerActual = rideData.data.map((d) => toNumberOrNull(d.po));
   const predictionSeries = models.map((model) =>
     rideData.data.map((d) => toNumberOrNull(d[model])),
   );
 
   const validTimes = timeData.filter((t): t is number => t !== null);
+  const validPowerValues = powerActual.filter((p): p is number => p !== null);
   const allHRValues = [hrActual, ...predictionSeries]
     .flat()
     .filter((h): h is number => h !== null);
@@ -58,11 +60,19 @@ export default function PredictionChart({
   const maxTime = Math.max(...validTimes);
   const minHRRaw = Math.min(...allHRValues);
   const maxHRRaw = Math.max(...allHRValues);
+  const minPowerRaw =
+    validPowerValues.length > 0 ? Math.min(...validPowerValues) : 0;
+  const maxPowerRaw =
+    validPowerValues.length > 0 ? Math.max(...validPowerValues) : 1;
 
   // Keep some visual headroom so peaks are not clipped at chart boundaries.
   const hrPadding = Math.max(3, (maxHRRaw - minHRRaw) * 0.05);
   const minHR = minHRRaw - hrPadding;
   const maxHR = maxHRRaw + hrPadding;
+
+  const powerPadding = Math.max(20, (maxPowerRaw - minPowerRaw) * 0.08);
+  const minPower = Math.max(0, minPowerRaw - powerPadding);
+  const maxPower = maxPowerRaw + powerPadding;
 
   // Chart dimensions
   const chartWidth = 800;
@@ -74,15 +84,19 @@ export default function PredictionChart({
   // Scale functions
   const timeRange = Math.max(1e-9, maxTime - minTime);
   const hrRange = Math.max(1e-9, maxHR - minHR);
+  const powerRange = Math.max(1e-9, maxPower - minPower);
 
   const scaleX = (value: number) =>
     padding + ((value - minTime) / timeRange) * innerWidth;
   const scaleY = (value: number) =>
     padding + innerHeight - ((value - minHR) / hrRange) * innerHeight;
+  const scalePowerY = (value: number) =>
+    padding + innerHeight - ((value - minPower) / powerRange) * innerHeight;
 
   // Colors for different models
   const colors: Record<string, string> = {
     actual: "#ffc300",
+    power: "#64748b",
     pred_hist: "#1d4e89",
     pred_default: "#2563eb",
     pred_no_fuite: "#0f766e",
@@ -104,6 +118,30 @@ export default function PredictionChart({
       if (t !== null && v !== null) {
         const x = scaleX(t);
         const y = scaleY(v);
+
+        if (!isDrawing) {
+          path += `M ${x} ${y}`;
+          isDrawing = true;
+        } else {
+          path += ` L ${x} ${y}`;
+        }
+      } else {
+        isDrawing = false;
+      }
+    }
+    return path;
+  };
+
+  const generatePowerPath = (values: (number | null)[]): string => {
+    let path = "";
+    let isDrawing = false;
+
+    for (let i = 0; i < values.length; i++) {
+      const t = timeData[i];
+      const v = values[i];
+      if (t !== null && v !== null) {
+        const x = scaleX(t);
+        const y = scalePowerY(v);
 
         if (!isDrawing) {
           path += `M ${x} ${y}`;
@@ -186,6 +224,16 @@ export default function PredictionChart({
             stroke="#001d3d"
             strokeWidth="2"
           />
+          {validPowerValues.length > 0 && (
+            <line
+              x1={padding + innerWidth}
+              y1={padding}
+              x2={padding + innerWidth}
+              y2={padding + innerHeight}
+              stroke="#cfd8e3"
+              strokeWidth="1"
+            />
+          )}
 
           {/* Axis labels */}
           <text
@@ -205,6 +253,17 @@ export default function PredictionChart({
           >
             FC (bpm)
           </text>
+          {validPowerValues.length > 0 && (
+            <text
+              x={chartWidth - 15}
+              y={chartHeight / 2}
+              textAnchor="middle"
+              transform={`rotate(90 ${chartWidth - 15} ${chartHeight / 2})`}
+              className="text-xs"
+            >
+              Puissance (W)
+            </text>
+          )}
 
           {/* Scale labels on axes */}
           {[0, 0.25, 0.5, 0.75, 1].map((t) => {
@@ -239,8 +298,35 @@ export default function PredictionChart({
             );
           })}
 
+          {validPowerValues.length > 0 &&
+            [0, 0.25, 0.5, 0.75, 1].map((t) => {
+              const power = minPower + t * (maxPower - minPower);
+              const y = scalePowerY(power);
+              return (
+                <text
+                  key={`powerlabel-${t}`}
+                  x={padding + innerWidth + 10}
+                  y={y + 4}
+                  textAnchor="start"
+                  className="text-xs text-[#64748b]"
+                >
+                  {power.toFixed(0)}
+                </text>
+              );
+            })}
+
           {/* Plot actual HR */}
           <g clipPath="url(#chart-clip)">
+            {validPowerValues.length > 0 && (
+              <path
+                d={generatePowerPath(powerActual)}
+                fill="none"
+                stroke={colors.power}
+                strokeOpacity="0.22"
+                strokeWidth="3"
+              />
+            )}
+
             <path
               d={generatePath(hrActual)}
               fill="none"
@@ -265,6 +351,15 @@ export default function PredictionChart({
 
       {/* Legend */}
       <div className="mt-6 flex flex-wrap gap-6">
+        {validPowerValues.length > 0 && (
+          <div className="flex items-center gap-2">
+            <div
+              className="w-4 h-0.5 opacity-30"
+              style={{ backgroundColor: colors.power }}
+            />
+            <span className="text-sm text-gray-700">Puissance</span>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <div
             className="w-4 h-0.5"

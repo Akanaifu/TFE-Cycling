@@ -26,10 +26,16 @@ PREDICTION_PARAMS: dict[str, dict[str, Any]] = {
         "init_window": 5,
         "one_based_index": True,
     },
-    "physio": {
-        "dt1": 10,
-        "dt2": 8,
-        "dt3": 5,
+    "alt_fitting": {
+        "dt1": 15,
+        "dt2": 16,
+        "dt3": 7,
+        "ke_opti": 0,
+    },
+    "fit_nelder": {
+        "dt1": 5,
+        "dt2": 6,
+        "dt3": 3,
         "ke_opti": 1,
     },
 }
@@ -488,21 +494,20 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
             pred_col="arx_pred_selected",
             max_nan_ratio=config.nan_ratio,
         )
-    print(f"{config.selected_train_ride = }")
     if "physio_alt_fitting" in selected_models_compute:
-        print(f"{config.selected_train_ride = }")
+
         predictions["physio_alt_fitting"] = prediction_physiologic(
             [r.copy(deep=True) for r in rides],
-            rides_train=[rides[config.selected_train_ride - 1]],
-            **PREDICTION_PARAMS["physio"],
+            **PREDICTION_PARAMS["alt_fitting"],
+            calibration_ride_index=config.selected_train_ride - 1,
             method="alt_fitting",
         )
     if "physio_fit_nelder" in selected_models_compute:
-        print(f"{config.selected_train_ride = }")
+
         predictions["physio_fit_nelder"] = prediction_physiologic(
             [r.copy(deep=True) for r in rides],
-            rides_train=[rides[config.selected_train_ride - 1]],
-            **PREDICTION_PARAMS["physio"],
+            **PREDICTION_PARAMS["fit_nelder"],
+            calibration_ride_index=config.selected_train_ride - 1,
             method="fit_nelder",
         )
     # Model specifications
@@ -605,6 +610,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
         rides_copy_1,
         rides_train=[rides[config.train_ride_index_1 - 1]],
         **PREDICTION_PARAMS["physio"],
+        calibration_ride_index=0,
         method="alt_fitting",
     )
     # Rename prediction column for compatibility
@@ -617,6 +623,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
         rides_copy_2,
         rides_train=[rides[config.train_ride_index_2 - 1]],
         **PREDICTION_PARAMS["physio"],
+        calibration_ride_index=0,
         method="alt_fitting",
     )
     # Rename prediction column for compatibility
@@ -654,6 +661,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
             rides_copy_all_1,
             rides_train=[rides[config.train_ride_index_1 - 1]],
             **PREDICTION_PARAMS["physio"],
+            calibration_ride_index=0,
             method="alt_fitting",
         )
         # Rename prediction column for compatibility
@@ -665,6 +673,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
             rides_copy_all_2,
             rides_train=[rides[config.train_ride_index_2 - 1]],
             **PREDICTION_PARAMS["physio"],
+            calibration_ride_index=0,
             method="alt_fitting",
         )
         # Rename prediction column for compatibility
