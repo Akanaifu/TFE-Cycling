@@ -7,10 +7,10 @@ import { useEffect, useRef, useState } from "react";
 
 const navigationItems = [
   { href: "/pipeline", label: "Pipeline" },
-  { href: "/fit-import", label: "Import FIT" },
   { href: "/compare-models", label: "Comparaison" },
   { href: "/strava", label: "Strava" },
   { href: "/register", label: "Nouveau compte" },
+  { href: "/fit-import", label: "Import FIT" },
 ];
 
 export default function Navbar() {
