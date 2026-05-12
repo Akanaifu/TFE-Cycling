@@ -17,6 +17,42 @@ import warnings
 import numpy as np
 import pandas as pd
 
+PREDICTION_PARAMS: dict[str, dict[str, Any]] = {
+    "default": {"lag_start": 5},
+    "arx": {
+        "n_hr_lags": 1,
+        "ridge_alpha": 5,
+        "po_lag_start": 5,
+        "init_window": 5,
+        "one_based_index": True,
+    },
+    "physio": {
+        "dt1": 10,
+        "dt2": 8,
+        "dt3": 5,
+        "ke_opti": 1,
+    },
+}
+
+PHYSIO_MODEL_SPECS: dict[str, dict[str, str]] = {
+    "physio_alt_fitting": {
+        "col": "physio_pred_alt_fitting",
+        "label": "physio_alt_fitting",
+    },
+    "physio_fit_nelder": {
+        "col": "physio_pred_fit_nelder",
+        "label": "physio_fit_nelder",
+    },
+    "pred_physio_simple_reg": {
+        "col": "physio_pred_simple_reg",
+        "label": "pred_physio_simple_reg",
+    },
+    "pred_physio_alt_fitting": {
+        "col": "physio_pred_alt_fitting",
+        "label": "pred_physio_alt_fitting",
+    },
+}
+
 
 def _is_truthy_env(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -354,35 +390,14 @@ def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
     return rides_feat
 
 
-from app.services.prediction_algorithms.arx_no_fuite import (
-    prediction_arx_with_prev_rides_no_fuite,
-)
 from app.services.prediction_algorithms.arx_selected import (
     prediction_arx_from_selected_ride,
 )
 from app.services.prediction_algorithms.default_model import prediction
-from app.services.prediction_algorithms.historical_model import (
-    prediction_with_prev_rides,
+
+from app.services.prediction_algorithms.physiologic import (
+    prediction_physiologic,
 )
-from app.services.prediction_algorithms.physiologic import prediction_physiologic
-
-
-def compute_rmse_per_ride(
-    rides: list[pd.DataFrame], pred_cols: list[str], labels: list[str]
-) -> pd.DataFrame:
-    """Compute RMSE for each ride and prediction column."""
-    rows: list[dict[str, Any]] = []
-    for ride_idx, ride in enumerate(rides, start=1):
-        row: dict[str, Any] = {"ride": ride_idx}
-        for pred_col, label in zip(pred_cols, labels):
-            mask = ride["hr"].notna() & ride[pred_col].notna()
-            if mask.sum() == 0:
-                row[label] = float("nan")
-            else:
-                err = ride.loc[mask, "hr"] - ride.loc[mask, pred_col]
-                row[label] = float(np.sqrt(np.mean(err**2)))
-        rows.append(row)
-    return pd.DataFrame(rows)
 
 
 @dataclass
@@ -397,99 +412,6 @@ class AnalysisConfig:
     nan_ratio: float = 0.1
     selected_train_ride: int = 1
     selected_target_rides: int | list[int] | None = None
-
-
-def run_notebook_analysis(config: AnalysisConfig) -> dict[str, Any]:
-    """Execute full analysis pipeline with specified configuration."""
-    rides = extract_donnee_pickle(config.dir_path)
-
-    selected_models_compute = list(
-        dict.fromkeys(config.selected_models_plot + config.selected_models_stats)
-    )
-    predictions: dict[str, list[pd.DataFrame]] = {}
-
-    if "pred_default" in selected_models_compute:
-        predictions["pred_default"] = prediction(
-            [r.copy(deep=True) for r in rides],
-            lag_start=5,
-            max_nan_ratio=config.nan_ratio,
-        )
-
-    if "pred_arx_selected" in selected_models_compute:
-        predictions["pred_arx_selected"] = prediction_arx_from_selected_ride(
-            [r.copy(deep=True) for r in rides],
-            train_ride_index=config.selected_train_ride,
-            target_ride_indices=config.selected_target_rides,
-            n_hr_lags=1,
-            ridge_alpha=1,
-            po_lag_start=5,
-            pred_col="arx_pred_selected",
-            max_nan_ratio=config.nan_ratio,
-            init_window=3,
-            one_based_index=True,
-        )
-    if "pred_physio" in selected_models_compute:
-        predictions["pred_physio"] = prediction_physiologic(
-            [r.copy(deep=True) for r in rides]
-        )
-
-    model_specs = {
-        "pred_default": {"col": "pred1", "label": "pred_default"},
-        "pred_arx_selected": {"col": "arx_pred_selected", "label": "pred_arx_selected"},
-        "pred_physio": {"col": "physio_pred", "label": "pred_physio"},
-    }
-
-    unknown = [m for m in selected_models_compute if m not in model_specs]
-    if unknown:
-        raise ValueError(f"Unknown models in selection: {unknown}")
-
-    missing = [m for m in selected_models_compute if m not in predictions]
-    if missing:
-        raise ValueError(f"Models not computed: {missing}")
-
-    rides_combined: list[pd.DataFrame] = []
-    for i, ride in enumerate(rides):
-        base = ride.copy()
-        if "t_min" not in base.columns and "t" in base.columns:
-            base["t_min"] = base["t"] / 60.0
-
-        for model_key in selected_models_compute:
-            spec = model_specs[model_key]
-            src_ride = predictions[model_key][i]
-            base[model_key] = src_ride[spec["col"]]
-
-        rides_combined.append(base)
-
-    pred_cols_stats = config.selected_models_stats
-    labels_stats = [model_specs[m]["label"] for m in config.selected_models_stats]
-
-    rmse_df = (
-        compute_rmse_per_ride(rides_combined, pred_cols_stats, labels_stats)
-        if len(pred_cols_stats) > 0
-        else pd.DataFrame()
-    )
-
-    model_data_summary = pd.DataFrame(
-        {
-            "model": selected_models_compute,
-            "valid_points": [
-                int(
-                    sum(
-                        (df["hr"].notna() & df[m].notna()).sum()
-                        for df in rides_combined
-                    )
-                )
-                for m in selected_models_compute
-            ],
-        }
-    )
-
-    return {
-        "n_rides": len(rides_combined),
-        "selected_models_compute": selected_models_compute,
-        "rmse_table": rmse_df.to_dict(orient="records"),
-        "model_data_summary": model_data_summary.to_dict(orient="records"),
-    }
 
 
 def compute_metrics(actual: list[float], predicted: list[float]) -> dict[str, float]:
@@ -548,26 +470,13 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
     selected_models_compute = config.selected_models_compute
     predictions: dict[str, list[pd.DataFrame]] = {}
 
-    # Compute requested models
-    if "pred_hist" in selected_models_compute:
-        predictions["pred_hist"] = prediction_with_prev_rides(
-            [r.copy(deep=True) for r in rides],
-            x_prev_rides=config.prev_ride,
-            max_nan_ratio=config.nan_ratio,
-        )
-
     if "pred_default" in selected_models_compute:
-        predictions["pred_default"] = prediction([r.copy(deep=True) for r in rides])
-
-    if "pred_no_fuite" in selected_models_compute:
-        predictions["pred_no_fuite"] = prediction_arx_with_prev_rides_no_fuite(
+        predictions["pred_default"] = prediction(
             [r.copy(deep=True) for r in rides],
-            x_prev_rides=config.prev_ride,
+            train_ride_index=config.selected_train_ride,
+            target_ride_indices=config.selected_target_rides,
+            **PREDICTION_PARAMS["default"],
             max_nan_ratio=config.nan_ratio,
-            init_window=5,
-            n_hr_lags=1,
-            ridge_alpha=5,
-            po_lag_start=5,
         )
 
     if "pred_arx_selected" in selected_models_compute:
@@ -575,26 +484,41 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
             [r.copy(deep=True) for r in rides],
             train_ride_index=config.selected_train_ride,
             target_ride_indices=config.selected_target_rides,
-            n_hr_lags=1,
-            ridge_alpha=5,
-            po_lag_start=5,
+            **PREDICTION_PARAMS["arx"],
             pred_col="arx_pred_selected",
             max_nan_ratio=config.nan_ratio,
-            init_window=5,
-            one_based_index=True,
         )
-    if "pred_physio" in selected_models_compute:
-        predictions["pred_physio"] = prediction_physiologic(
+    print(f"{config.selected_train_ride = }")
+    if "physio_alt_fitting" in selected_models_compute:
+        print(f"{config.selected_train_ride = }")
+        predictions["physio_alt_fitting"] = prediction_physiologic(
             [r.copy(deep=True) for r in rides],
+            rides_train=[rides[config.selected_train_ride - 1]],
+            **PREDICTION_PARAMS["physio"],
+            method="alt_fitting",
         )
-
+    if "physio_fit_nelder" in selected_models_compute:
+        print(f"{config.selected_train_ride = }")
+        predictions["physio_fit_nelder"] = prediction_physiologic(
+            [r.copy(deep=True) for r in rides],
+            rides_train=[rides[config.selected_train_ride - 1]],
+            **PREDICTION_PARAMS["physio"],
+            method="fit_nelder",
+        )
     # Model specifications
     model_specs = {
         "pred_default": {"col": "pred1", "label": "pred_default"},
-        "pred_hist": {"col": "pred_prev", "label": "pred_hist"},
-        "pred_no_fuite": {"col": "arx_pred_no_fuite", "label": "pred_no_fuite"},
         "pred_arx_selected": {"col": "arx_pred_selected", "label": "pred_arx_selected"},
-        "pred_physio": {"col": "physio_pred", "label": "pred_physio"},
+        "physio_alt_fitting": {
+            "col": "physio_pred_alt_fitting",
+            "label": "physio_alt_fitting",
+        },
+        "physio_fit_nelder": {
+            "col": "physio_pred_fit_nelder",
+            "label": "physio_fit_nelder",
+        },
+        "pred_physio": {"col": "physio_pred_alt_fitting", "label": "pred_physio"},
+        **PHYSIO_MODEL_SPECS,
     }
 
     # Check for unknown or missing models
@@ -677,33 +601,27 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
 
     # Train model 1 on ride 1, test on test_ride
     rides_copy_1 = [r.copy(deep=True) for r in rides]
-    pred_1_all = prediction_arx_from_selected_ride(
+    pred_1_all = prediction_physiologic(
         rides_copy_1,
-        train_ride_index=config.train_ride_index_1,
-        target_ride_indices=config.test_ride_index,
-        n_hr_lags=1,
-        ridge_alpha=5,
-        po_lag_start=5,
-        pred_col="model_1_pred",
-        max_nan_ratio=0.10,
-        init_window=5,
-        one_based_index=True,
+        rides_train=[rides[config.train_ride_index_1 - 1]],
+        **PREDICTION_PARAMS["physio"],
+        method="alt_fitting",
     )
+    # Rename prediction column for compatibility
+    for ride in pred_1_all:
+        ride["model_1_pred"] = ride["physio_pred_alt_fitting"]
 
     # Train model 2 on ride 2, test on test_ride
     rides_copy_2 = [r.copy(deep=True) for r in rides]
-    pred_2_all = prediction_arx_from_selected_ride(
+    pred_2_all = prediction_physiologic(
         rides_copy_2,
-        train_ride_index=config.train_ride_index_2,
-        target_ride_indices=config.test_ride_index,
-        n_hr_lags=1,
-        ridge_alpha=5,
-        po_lag_start=5,
-        pred_col="model_2_pred",
-        max_nan_ratio=0.10,
-        init_window=5,
-        one_based_index=True,
+        rides_train=[rides[config.train_ride_index_2 - 1]],
+        **PREDICTION_PARAMS["physio"],
+        method="alt_fitting",
     )
+    # Rename prediction column for compatibility
+    for ride in pred_2_all:
+        ride["model_2_pred"] = ride["physio_pred_alt_fitting"]
 
     # Get test ride predictions (1-based index means we need index-1 for 0-based array)
     test_ride_zero_idx = config.test_ride_index - 1
@@ -732,32 +650,26 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
     if config.apply_to_all_rides:
         # Train both models on all rides
         rides_copy_all_1 = [r.copy(deep=True) for r in rides]
-        pred_all_1 = prediction_arx_from_selected_ride(
+        pred_all_1 = prediction_physiologic(
             rides_copy_all_1,
-            train_ride_index=config.train_ride_index_1,
-            target_ride_indices=None,  # Apply to all
-            n_hr_lags=1,
-            ridge_alpha=5,
-            po_lag_start=5,
-            pred_col="model_1_pred",
-            max_nan_ratio=0.10,
-            init_window=5,
-            one_based_index=True,
+            rides_train=[rides[config.train_ride_index_1 - 1]],
+            **PREDICTION_PARAMS["physio"],
+            method="alt_fitting",
         )
+        # Rename prediction column for compatibility
+        for ride in pred_all_1:
+            ride["model_1_pred"] = ride["physio_pred_alt_fitting"]
 
         rides_copy_all_2 = [r.copy(deep=True) for r in rides]
-        pred_all_2 = prediction_arx_from_selected_ride(
+        pred_all_2 = prediction_physiologic(
             rides_copy_all_2,
-            train_ride_index=config.train_ride_index_2,
-            target_ride_indices=None,  # Apply to all
-            n_hr_lags=1,
-            ridge_alpha=5,
-            po_lag_start=5,
-            pred_col="model_2_pred",
-            max_nan_ratio=0.10,
-            init_window=5,
-            one_based_index=True,
+            rides_train=[rides[config.train_ride_index_2 - 1]],
+            **PREDICTION_PARAMS["physio"],
+            method="alt_fitting",
         )
+        # Rename prediction column for compatibility
+        for ride in pred_all_2:
+            ride["model_2_pred"] = ride["physio_pred_alt_fitting"]
 
         # Compute diffs for each ride
         all_rides_diffs = []

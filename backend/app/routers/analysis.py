@@ -60,34 +60,6 @@ class CompareModelsRequest(BaseModel):
     )
 
 
-@router.post("/analysis/run")
-async def run_analysis(
-    payload: AnalysisRequest,
-    current_user: dict = Depends(auth_service.get_current_user),
-) -> dict:
-    """Execute analysis on rides using specified configuration."""
-    try:
-        _, effective_dir = resolve_authorized_cyclist_and_dir(
-            current_user, payload.dir_path
-        )
-
-        config = notebook_service.AnalysisConfig(
-            dir_path=effective_dir,
-            selected_models_plot=payload.selected_models_plot,
-            selected_models_stats=payload.selected_models_stats,
-            show_rmse_table=payload.show_rmse_table,
-            prev_ride=payload.prev_ride,
-            nan_ratio=payload.nan_ratio,
-            selected_train_ride=payload.selected_train_ride,
-            selected_target_rides=payload.selected_target_rides,
-        )
-        return notebook_service.run_notebook_analysis(config)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
 @router.post("/pipeline/run")
 async def run_pipeline(
     payload: PipelineRequest,

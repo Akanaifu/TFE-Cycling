@@ -87,6 +87,8 @@ export default function PredictionChart({
     pred_default: "#2563eb",
     pred_no_fuite: "#0f766e",
     pred_arx_selected: "#7c3aed",
+    physio_fit_nelder: "#d69494",
+    physio_alt_fitting: "#ed3ab4",
     compare_model_a: "#1d4e89",
     compare_model_b: "#7c3aed",
   };

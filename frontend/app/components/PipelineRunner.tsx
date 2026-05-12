@@ -46,7 +46,7 @@ export default function PipelineRunner() {
 
   const [selectedCyclist, setSelectedCyclist] = useState("");
   const [selectedModels, setSelectedModels] = useState<string[]>([
-    "pred_arx_selected",
+    "pred_default",
   ]);
   const [selectedTrainRide, setSelectedTrainRide] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -130,7 +130,8 @@ export default function PipelineRunner() {
   const availableModels = [
     { id: "pred_default", label: "Régression simple" },
     { id: "pred_arx_selected", label: "ARX sélectionné" },
-    { id: "pred_physio", label: "Prédiction physiologique" },
+    { id: "physio_alt_fitting", label: "Physio alt_fitting" },
+    { id: "physio_fit_nelder", label: "Physio fit_nelder" },
   ];
 
   const toggleModel = (modelId: string) => {
