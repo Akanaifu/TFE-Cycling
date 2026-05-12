@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import BpmDiffVisualizer from "./BpmDiffVisualizer";
 import PredictionChart from "./PredictionChart";
+import InterpretationGuide from "./InterpretationGuide";
 import CyclistSelector from "./CyclistSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
 import { commonPipelineStyles, predictionPageStyles } from "./pipelineStyles";
@@ -647,6 +648,8 @@ export default function ModelComparison({ apiUrl }: ModelComparisonProps) {
             {chartRideData && (
               <PredictionChart rideData={chartRideData} models={chartModels} />
             )}
+
+            <InterpretationGuide context="compare" />
           </div>
 
           {comparisonResult && (

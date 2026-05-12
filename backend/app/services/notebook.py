@@ -609,7 +609,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
     pred_1_all = prediction_physiologic(
         rides_copy_1,
         rides_train=[rides[config.train_ride_index_1 - 1]],
-        **PREDICTION_PARAMS["physio"],
+        **PREDICTION_PARAMS["alt_fitting"],
         calibration_ride_index=0,
         method="alt_fitting",
     )

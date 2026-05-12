@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import BpmDiffVisualizer from "./BpmDiffVisualizer";
 import CyclistSelector from "./CyclistSelector";
 import PredictionChart from "./PredictionChart";
+import InterpretationGuide from "./InterpretationGuide";
 import RideSelector from "./RideSelector";
 import TrainingRidePreview from "./TrainingRidePreview";
 import { commonPipelineStyles, predictionPageStyles } from "./pipelineStyles";
@@ -426,6 +427,8 @@ export default function PipelineRunner() {
                 rideData={currentRide}
                 models={result.models_computed}
               />
+
+              <InterpretationGuide context="pipeline" />
 
               {selectedModelDiffVisualization && (
                 <div className="space-y-3">
