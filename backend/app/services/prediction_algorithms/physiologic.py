@@ -145,12 +145,12 @@ def _fit_simple_reg(
     if ke_opti == 1:
         k_e = W[3] / k
     elif ke_opti == 0:
-        k_e = 0.0
+        k_e = 0
     else:
-        k_e = float(ke_opti)
+        k_e = ke_opti
 
     k_plus, k_minus = k, k
-    return _clip_physio_params(hr_min, m, k_e, k_plus, k_minus)
+    return hr_min, m, k_e, k_plus, k_minus
 
 
 def _fit_simple_reg_fixed_k(
@@ -219,7 +219,7 @@ def _fit_simple_reg_fixed_k(
     else:
         k_e = float(ke_opti)
 
-    return _clip_physio_params(hr_min, m, k_e, 1.0, 1.0)[:3]
+    return hr_min, m, k_e
 
 
 def _get_k_minus_and_plus(
@@ -277,12 +277,9 @@ def _fit_parameters_alt_fitting(
     hr_min, m, k_e, k_plus, k_minus = _fit_simple_reg(df, ke_opti)
 
     # Iterate to refine k_plus and k_minus
-    for _ in range(20):
+    for _ in range(25):
         k_minus, k_plus = _get_k_minus_and_plus(df, hr_min, m, k_e)
         hr_min, m, k_e = _fit_simple_reg_fixed_k(df, ke_opti, k_minus, k_plus)
-        hr_min, m, k_e, k_plus, k_minus = _clip_physio_params(
-            hr_min, m, k_e, k_plus, k_minus
-        )
 
     return hr_min, m, k_e, k_plus, k_minus
 
@@ -293,6 +290,9 @@ def _fit_parameters_nelder(
     """Fit physiologic parameters with Nelder-Mead over the ride RMSE."""
     try:
         hr_min_0, m_0, k_e_0, k_plus_0, k_minus_0 = _fit_simple_reg(df, ke_opti)
+        for _ in range(25):
+            k_minus, k_plus = _get_k_minus_and_plus(df, hr_min, m, k_e)
+            hr_min, m, k_e = _fit_simple_reg_fixed_k(df, ke_opti, k_minus, k_plus)
     except Exception:
         hr_min_0, m_0, k_e_0, k_plus_0, k_minus_0 = 62.0, 0.25, 0.0, 0.03, 0.02
 
@@ -309,8 +309,8 @@ def _fit_parameters_nelder(
                 k_minus=k_minus,
                 k_e=k_e,
                 hr_max=float(np.nanmax(pd.to_numeric(df["hr"], errors="coerce"))),
-                dt2=16,
-                dt3=5,
+                dt2=6,
+                dt3=3,
                 pred_col="__physio_nelder__",
             )[0]
         except Exception:
@@ -337,7 +337,7 @@ def _fit_parameters_nelder(
 
 
 def _prepare_rides_for_fitting(
-    rides: list[pd.DataFrame], dt1: int = 10, dt2: int = 16, dt3: int = 5
+    rides: list[pd.DataFrame], dt1: int = 5, dt2: int = 16, dt3: int = 5
 ) -> list[pd.DataFrame]:
     """
     Prepare rides by adding necessary columns (pof, hrf, grad_hr).
@@ -355,6 +355,44 @@ def _prepare_rides_for_fitting(
         rides_prepared.append(ride_copy)
 
     return rides_prepared
+
+
+def _get_calibration_ride(
+    rides_train: list[pd.DataFrame] | None,
+    rides_feat: list[pd.DataFrame],
+    calibration_ride_index: int = 0,
+) -> pd.DataFrame:
+    """Return the single ride used to fit physiologic parameters."""
+    source_rides = rides_train if rides_train is not None else rides_feat
+    if len(source_rides) == 0:
+        raise ValueError("No training rides available for parameter fitting")
+
+    if calibration_ride_index < 0 or calibration_ride_index >= len(source_rides):
+        raise IndexError(
+            f"calibration_ride_index out of range: {calibration_ride_index} (available: 0..{len(source_rides) - 1})"
+        )
+    return source_rides[calibration_ride_index]
+
+
+def _fit_parameters_from_ride(
+    ride: pd.DataFrame,
+    dt1: int,
+    dt2: int,
+    dt3: int,
+    ke_opti: int,
+    method: str,
+) -> tuple[float, float, float, float, float]:
+    """Fit physiologic parameters from one calibration ride."""
+    ride_prepared = _prepare_rides_for_fitting([ride], dt1, dt2, dt3)
+    if len(ride_prepared) == 0:
+        raise ValueError("Calibration ride has no valid data after preparation")
+
+    calibration_df = ride_prepared[0]
+    if method == "alt_fitting":
+        return _fit_parameters_alt_fitting(calibration_df, ke_opti)
+    if method == "fit_nelder":
+        return _fit_parameters_nelder(calibration_df, ke_opti)
+    raise ValueError(f"Unknown fitting method: {method}")
 
 
 def _predict_with_params(
@@ -429,9 +467,10 @@ def prediction_physiologic(
     dt3: int = 5,
     ke_opti: int = 1,
     method: str = "alt_fitting",
+    calibration_ride_index: int = 0,
 ) -> list[pd.DataFrame]:
     """
-    Predict HR using physiologic steady-state model with parameters learned from training rides.
+    Predict HR using physiologic steady-state model with parameters learned from one calibration ride.
 
     Args:
         rides_feat: List of rides to make predictions on
@@ -441,7 +480,7 @@ def prediction_physiologic(
         dt2: Window for power output smoothing
         dt3: Window for HR smoothing
         ke_opti: Whether to optimize k_e (1=yes, 0=no)
-        method: Which fitting method to use ('simple_reg', 'alt_fitting')
+        method: Which fitting method to use ('alt_fitting', 'fit_nelder')
 
     Returns:
         List of dataframes with predictions added for each method used
@@ -449,41 +488,23 @@ def prediction_physiologic(
     if len(rides_feat) == 0:
         return []
 
-    # Use training rides if provided, otherwise use prediction rides
-    print(f"{rides_train = }")
-    training_rides = rides_train if rides_train is not None else rides_feat
-
-    if len(training_rides) == 0:
-        raise ValueError("No training rides available for parameter fitting")
+    calibration_ride = _get_calibration_ride(
+        rides_train, rides_feat, calibration_ride_index=calibration_ride_index
+    )
 
     # Infer hr_max if not provided
     if hr_max is None:
-        hr_max = infer_cyclist_hr_max(training_rides)
+        hr_max = infer_cyclist_hr_max([calibration_ride])
 
-    # Prepare training data
-    rides_prepared = _prepare_rides_for_fitting(training_rides, dt1, dt2, dt3)
-
-    if len(rides_prepared) == 0:
-        raise ValueError("No valid training rides after preparation")
-
-    # Combine all training rides for fitting (concatenate all data)
-    combined_train = pd.concat(rides_prepared, ignore_index=True)
-
-    # Calculate parameters using specified method
-    if method == "alt_fitting":
-        hr_min, mp, k_e, k_plus, k_minus = _fit_parameters_alt_fitting(
-            combined_train, ke_opti
-        )
-        # print(f"alt {hr_min = }, {mp = }, {k_e = }, {k_plus = }, {k_minus = }")
-        param_source = "alt_fitting"
-    elif method == "fit_nelder":
-        hr_min, mp, k_e, k_plus, k_minus = _fit_parameters_nelder(
-            combined_train, ke_opti
-        )
-        # print(f"nelder {hr_min = }, {mp = }, {k_e = }, {k_plus = }, {k_minus = }")
-        param_source = "fit_nelder"
-    else:
-        raise ValueError(f"Unknown fitting method: {method}")
+    hr_min, mp, k_e, k_plus, k_minus = _fit_parameters_from_ride(
+        calibration_ride,
+        dt1=dt1,
+        dt2=dt2,
+        dt3=dt3,
+        ke_opti=ke_opti,
+        method=method,
+    )
+    param_source = method
 
     # Add predictions using calculated parameters
     rides_with_pred = _predict_with_params(
@@ -510,6 +531,7 @@ def prediction_physiologic_all_methods(
     dt2: int = 16,
     dt3: int = 5,
     ke_opti: int = 1,
+    calibration_ride_index: int = 0,
 ) -> list[pd.DataFrame]:
     """
     Predict HR using all available physiologic methods.
@@ -533,29 +555,25 @@ def prediction_physiologic_all_methods(
 
     results = [r.copy() for r in rides_feat]
 
-    # Use training rides if provided, otherwise use prediction rides
-    training_rides = rides_train if rides_train is not None else rides_feat
-
-    if len(training_rides) == 0:
-        raise ValueError("No training rides available for parameter fitting")
+    calibration_ride = _get_calibration_ride(
+        rides_train, rides_feat, calibration_ride_index=calibration_ride_index
+    )
 
     # Infer hr_max if not provided
     if hr_max is None:
-        hr_max = infer_cyclist_hr_max(training_rides)
+        hr_max = infer_cyclist_hr_max([calibration_ride])
 
-    # Prepare training data
-    rides_prepared = _prepare_rides_for_fitting(training_rides, dt1, dt2, dt3)
+    calibration_prepared = _prepare_rides_for_fitting([calibration_ride], dt1, dt2, dt3)
 
-    if len(rides_prepared) == 0:
-        raise ValueError("No valid training rides after preparation")
+    if len(calibration_prepared) == 0:
+        raise ValueError("No valid calibration ride after preparation")
 
-    # Combine all training rides for fitting
-    combined_train = pd.concat(rides_prepared, ignore_index=True)
+    calibration_df = calibration_prepared[0]
 
     # Method 1: Simple regression
     try:
         hr_min_1, mp_1, k_e_1, k_plus_1, k_minus_1 = _fit_simple_reg(
-            combined_train, ke_opti
+            calibration_df, ke_opti
         )
         results = _predict_with_params(
             results,
@@ -575,7 +593,7 @@ def prediction_physiologic_all_methods(
     # Method 2: Alternating fitting
     try:
         hr_min_2, mp_2, k_e_2, k_plus_2, k_minus_2 = _fit_parameters_alt_fitting(
-            combined_train, ke_opti
+            calibration_df, ke_opti
         )
         results = _predict_with_params(
             results,
@@ -595,7 +613,7 @@ def prediction_physiologic_all_methods(
     # Method 3: Nelder-Mead fitting
     try:
         hr_min_3, mp_3, k_e_3, k_plus_3, k_minus_3 = _fit_parameters_nelder(
-            combined_train, ke_opti
+            calibration_df, ke_opti
         )
         results = _predict_with_params(
             results,
