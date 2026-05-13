@@ -135,7 +135,11 @@ def _fit_simple_reg(
             [np.ones([len(hr), 1]), pof.reshape(-1, 1), hr.reshape(-1, 1)], axis=1
         )
     else:
-        raise ValueError("ke_opti must be 0, 1, or a float value")
+        if not isinstance(ke_opti, (int, float, np.integer, np.floating)):
+            raise ValueError("ke_opti must be numeric")
+        X = np.concatenate(
+            [np.ones([len(hr), 1]), pof.reshape(-1, 1), hr.reshape(-1, 1)], axis=1
+        )
 
     W = inv(X.T @ X) @ X.T @ Y
 
@@ -147,7 +151,7 @@ def _fit_simple_reg(
     elif ke_opti == 0:
         k_e = 0
     else:
-        k_e = ke_opti
+        k_e = float(ke_opti)
 
     k_plus, k_minus = k, k
     return hr_min, m, k_e, k_plus, k_minus
@@ -205,7 +209,14 @@ def _fit_simple_reg_fixed_k(
             [np.ones([len(hr_dec), 1]), pof_dec.reshape(-1, 1)], axis=1
         )
     else:
-        raise ValueError("ke_opti must be 0 or 1 for this function")
+        if not isinstance(ke_opti, (int, float, np.integer, np.floating)):
+            raise ValueError("ke_opti must be numeric")
+        X_inc = np.concatenate(
+            [np.ones([len(hr_inc), 1]), pof_inc.reshape(-1, 1)], axis=1
+        )
+        X_dec = np.concatenate(
+            [np.ones([len(hr_dec), 1]), pof_dec.reshape(-1, 1)], axis=1
+        )
 
     X = np.concatenate([X_dec, X_inc])
     W = inv(X.T @ X) @ X.T @ Y
@@ -291,8 +302,10 @@ def _fit_parameters_nelder(
     try:
         hr_min_0, m_0, k_e_0, k_plus_0, k_minus_0 = _fit_simple_reg(df, ke_opti)
         for _ in range(25):
-            k_minus, k_plus = _get_k_minus_and_plus(df, hr_min, m, k_e)
-            hr_min, m, k_e = _fit_simple_reg_fixed_k(df, ke_opti, k_minus, k_plus)
+            k_minus_0, k_plus_0 = _get_k_minus_and_plus(df, hr_min_0, m_0, k_e_0)
+            hr_min_0, m_0, k_e_0 = _fit_simple_reg_fixed_k(
+                df, ke_opti, k_minus_0, k_plus_0
+            )
     except Exception:
         hr_min_0, m_0, k_e_0, k_plus_0, k_minus_0 = 62.0, 0.25, 0.0, 0.03, 0.02
 
@@ -314,6 +327,9 @@ def _fit_parameters_nelder(
                 pred_col="__physio_nelder__",
             )[0]
         except Exception:
+            return float("inf")
+
+        if "__physio_nelder__" not in predicted.columns:
             return float("inf")
 
         y_true = pd.to_numeric(df["hr"], errors="coerce").to_numpy(dtype=float)
