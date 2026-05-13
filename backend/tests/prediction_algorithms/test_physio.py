@@ -6,6 +6,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 import numpy as np
 import pandas as pd
 import pytest
+from numpy.random import default_rng
 
 from app.services.prediction_algorithms import physiologic as phys
 
@@ -31,12 +32,10 @@ def test_infer_cyclist_hr_max():
 
 def test_roll_and_add_columns():
     df = make_simple_ride(30)
-    # rolling mean
     arr = np.array([1.0, 2.0, 3.0, 4.0])
     out = phys._rolling_mean(arr, 1)
     assert out.shape == arr.shape
 
-    # add pof/hrf/grad
     phys._add_pof(df, 3)
     phys._add_hrf(df, 2)
     phys._add_grad_hr(df, 1)
@@ -46,8 +45,7 @@ def test_roll_and_add_columns():
 
 
 def test_clip_physio_params():
-    clipped = phys._clip_physio_params(-100, 10, 1.0, -1.0, 5.0)
-    hr_min, m, k_e, k_plus, k_minus = clipped
+    hr_min, m, k_e, k_plus, k_minus = phys._clip_physio_params(-100, 10, 1.0, -1.0, 5.0)
     assert hr_min >= phys.HR_MIN_BOUNDS[0]
     assert m >= phys.MP_BOUNDS[0]
 
@@ -62,7 +60,6 @@ def test_get_calibration_ride_errors():
 
 def test_predict_with_params_basic():
     df = make_simple_ride(30)
-    # prepare by adding pof/hrf/grad
     phys._add_pof(df, 2)
     phys._add_hrf(df, 2)
     phys._add_grad_hr(df, 1)
@@ -85,13 +82,10 @@ def test_predict_with_params_basic():
 
 def make_long_ride(n=1200):
     t = np.arange(n)
-    rng = np.random.RandomState(0)
-    # power oscillates but stays within MIN_PO..MAX_PO, add tiny noise to avoid singular matrices
+    rng = default_rng(0)
     po = 120.0 + 10.0 * np.sin(t * 0.01) + rng.normal(0, 0.1, size=n)
-    # create clear increasing/decreasing HR phases so grad_hr has enough magnitude
     hr = 60.0 + 20.0 * np.sin(t * 0.02) + rng.normal(0, 0.2, size=n)
     df = pd.DataFrame({"po": po, "hr": hr})
-    # prepare expected derived columns
     phys._add_pof(df, dt2=6)
     phys._add_hrf(df, dt3=3)
     phys._add_grad_hr(df, dt1=5)
@@ -100,15 +94,12 @@ def make_long_ride(n=1200):
 
 def test_fit_simple_and_fixed_k_and_get_k():
     df = make_long_ride()
-    # exercise fit_simple_reg
     hr_min, m, k_e, k_plus, k_minus = phys._fit_simple_reg(df, ke_opti=1)
     assert isinstance(hr_min, float)
-    # fixed k variant
     hr_min2, m2, k_e2 = phys._fit_simple_reg_fixed_k(
         df, ke_opti=1, k_minus=0.01, k_plus=0.012
     )
     assert isinstance(k_e2, float)
-    # get k minus/plus
     k_minus_calc, k_plus_calc = phys._get_k_minus_and_plus(df, hr_min, m, k_e)
     assert 0.0 <= k_minus_calc <= 1.0
     assert 0.0 <= k_plus_calc <= 1.0
@@ -119,7 +110,6 @@ def test_alt_fitting_and_predict():
     params = phys._fit_parameters_alt_fitting(df, ke_opti=1)
     assert len(params) == 5
     hr_min, mp, k_e, k_plus, k_minus = params
-    # _predict_with_params should add prediction column
     out = phys._predict_with_params(
         [df],
         hr_min=hr_min,
@@ -140,12 +130,11 @@ def test_prepare_rides_and_fit_from_ride_and_all_methods():
     df = make_long_ride()
     prepared = phys._prepare_rides_for_fitting([df], dt1=5, dt2=6, dt3=3)
     assert isinstance(prepared, list)
-    # fit parameters from ride
     params = phys._fit_parameters_from_ride(
         df, dt1=5, dt2=6, dt3=3, ke_opti=1, method="alt_fitting"
     )
     assert len(params) == 5
-    # prediction_physiologic_all_methods should run (may skip some methods)
+
     results = phys.prediction_physiologic_all_methods(
         [df], rides_train=[df], hr_max=220.0, dt1=5, dt2=6, dt3=3, ke_opti=1
     )
@@ -153,7 +142,6 @@ def test_prepare_rides_and_fit_from_ride_and_all_methods():
 
 
 def make_tiny_ride():
-    # small but valid ride to exercise the Nelder fallback without raising on hr_max inference
     return pd.DataFrame(
         {
             "po": [120.0, 125.0, 130.0, 128.0, 126.0, 124.0],
@@ -165,13 +153,12 @@ def make_tiny_ride():
 def test_prediction_physiologic_nelder_fallback(monkeypatch):
     df = make_tiny_ride()
 
-    # force _fit_simple_reg to raise so _fit_parameters_nelder uses default fallback
     monkeypatch.setattr(
         phys,
         "_fit_simple_reg",
         lambda df_arg, ke_opti: (_ for _ in ()).throw(Exception("boom")),
     )
-    # calling prediction_physiologic with method fit_nelder should not crash
+
     res = phys.prediction_physiologic(
         [df],
         rides_train=[df],
@@ -187,7 +174,6 @@ def test_prediction_physiologic_all_methods_exceptions(monkeypatch):
         {"po": np.linspace(100, 120, 50), "hr": 60 + np.linspace(0, 10, 50)}
     )
 
-    # Force each fitting method to raise in turn to hit the except branches
     monkeypatch.setattr(
         phys, "_fit_simple_reg", lambda *a, **k: (_ for _ in ()).throw(Exception("s1"))
     )
@@ -202,7 +188,6 @@ def test_prediction_physiologic_all_methods_exceptions(monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(Exception("s3")),
     )
 
-    # Should run and return list, printing warnings internally
     out = phys.prediction_physiologic_all_methods(
         [df], rides_train=[df], calibration_ride_index=0
     )
@@ -324,12 +309,10 @@ def test_fit_parameters_nelder_objective_nan_prediction(monkeypatch):
     )
 
     def fake_predict_with_params(*args, **kwargs):
-        # Return DataFrame with same length as input df (1200 rows)
         return [
-            pd.DataFrame({
-                "__physio_nelder__": np.full(len(df), np.nan),
-                "hr": df["hr"].values
-            })
+            pd.DataFrame(
+                {"__physio_nelder__": np.full(len(df), np.nan), "hr": df["hr"].values}
+            )
         ]
 
     monkeypatch.setattr(phys, "_predict_with_params", fake_predict_with_params)
@@ -385,8 +368,9 @@ def test_predict_with_params_edge_branches():
     )
     assert "pred_nan_hrmin" in out1[0].columns
 
-    # Test with mostly NaN HR but a few valid values (to not trigger skip)
-    mostly_nan_hr = pd.DataFrame({"po": np.linspace(100, 110, 10), "hr": [np.nan] * 9 + [85.0]})
+    mostly_nan_hr = pd.DataFrame(
+        {"po": np.linspace(100, 110, 10), "hr": [np.nan] * 9 + [85.0]}
+    )
     out2 = phys._predict_with_params(
         [mostly_nan_hr],
         hr_min=np.nan,

@@ -11,8 +11,6 @@ from app.services.prediction_algorithms import common
 
 
 def test_import_common():
-    from app.services.prediction_algorithms import common
-
     assert common is not None
 
 

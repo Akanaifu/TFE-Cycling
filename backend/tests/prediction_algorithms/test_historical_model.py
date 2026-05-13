@@ -11,8 +11,6 @@ from app.services.prediction_algorithms import historical_model
 
 
 def test_import_historical_model():
-    from app.services.prediction_algorithms import historical_model
-
     assert historical_model is not None
 
 
@@ -35,7 +33,6 @@ def test_prediction_with_prev_rides_basic():
     r2 = make_ride(50)
     out = historical_model.prediction_with_prev_rides([r0, r1, r2], x_prev_rides=2)
     assert isinstance(out, list)
-    # pred_prevx should be added to rides
     assert "pred_prevx" in out[1].columns or "pred_prevx" in out[2].columns
 
 

@@ -11,8 +11,6 @@ from app.services.prediction_algorithms import default_model
 
 
 def test_import_default_model():
-    from app.services.prediction_algorithms import default_model
-
     assert default_model is not None
 
 
@@ -45,7 +43,6 @@ def test_prediction_basic():
 
 
 def make_ride_with_missing_cols(n=30):
-    # no work/work2 columns to trigger missing regression columns
     po = np.linspace(100, 200, n)
     hr = 30 + 0.5 * po
     return pd.DataFrame({"po": po, "hr": hr})
@@ -54,7 +51,6 @@ def make_ride_with_missing_cols(n=30):
 def test_missing_regression_columns_warns_and_skips():
     r1 = make_ride_with_missing_cols(30)
     r2 = make_ride_with_missing_cols(30)
-    # train ride missing work/work2 -> should warn and skip training, returning rides
     with pytest.warns(UserWarning):
         out = default_model.prediction([r1, r2], train_ride_index=1)
     assert isinstance(out, list)
@@ -62,7 +58,6 @@ def test_missing_regression_columns_warns_and_skips():
 
 def test_with_work_false_uses_only_po():
     r1 = make_ride(50)
-    # add some po_lag columns so features list includes them
     for k in range(1, 10):
         r1[f"po_lag_{k}"] = np.roll(r1["po"].to_numpy(), k)
         r1.loc[: k - 1, f"po_lag_{k}"] = r1.loc[: k - 1, "po"]
@@ -98,7 +93,6 @@ def test_target_indices_int_and_list_and_skips():
 
 
 def test_invalid_training_due_to_nan_ratio():
-    # create train ride with too many NaNs to trigger invalid_ratio branch
     n = 40
     po = np.linspace(100, 200, n)
     hr = np.array([np.nan] * n)

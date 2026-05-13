@@ -82,6 +82,7 @@ def prediction_arx_from_selected_ride(
     miss = [c for c in feature_cols + ["hr"] if c not in r_train.columns]
     if miss:
         import warnings
+
         msg = f"[Prediction ARX selected] Train ride {train_idx + 1}: missing columns {miss}. Predictions skipped."
         warnings.warn(msg, UserWarning)
         return rides_out

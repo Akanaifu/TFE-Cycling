@@ -11,8 +11,6 @@ from app.services.prediction_algorithms import arx_selected, arx_no_fuite
 
 
 def test_import_arx_modules():
-    from app.services.prediction_algorithms import arx_no_fuite, arx_selected
-
     assert arx_no_fuite is not None
     assert arx_selected is not None
 
@@ -22,7 +20,6 @@ def make_arx_ride(length=80, po_base=120):
     hr = 60.0 + 0.2 * np.arange(length)
     work = po * 0.1
     df = pd.DataFrame({"po": po, "hr": hr, "work": work})
-    # add po_lag columns
     for k in range(1, 12):
         df[f"po_lag_{k}"] = np.roll(po, k)
         df.loc[: k - 1, f"po_lag_{k}"] = np.nan
@@ -37,7 +34,6 @@ def test_prediction_arx_selected_basic():
         [r0, r1, r2], train_ride_index=1
     )
     assert isinstance(out, list)
-    # predictions column exists on targets
     assert (
         "arx_pred_selected" in out[1].columns or "arx_pred_selected" in out[2].columns
     )
@@ -62,7 +58,6 @@ def make_small_arx_ride(length=30):
     hr = 60 + 0.2 * np.arange(length)
     work = po * 0.1
     df = pd.DataFrame({"po": po, "hr": hr, "work": work})
-    # add some po_lag
     for k in range(1, 6):
         df[f"po_lag_{k}"] = np.roll(po, k)
         df.loc[: k - 1, f"po_lag_{k}"] = np.nan
@@ -71,20 +66,17 @@ def make_small_arx_ride(length=30):
 
 def test_arx_selected_ridge_none_and_missing_columns():
     r = make_small_arx_ride(40)
-    # remove feature columns from train to trigger early return
     r_missing = r.drop(columns=["work"])
     with pytest.warns(UserWarning):
         out = arx_selected.prediction_arx_from_selected_ride(
             [r_missing, r], train_ride_index=1, ridge_alpha=None
         )
-    # train invalid -> returns rides_out unchanged (pred col present but NaN)
     assert isinstance(out, list)
 
 
 def test_arx_no_fuite_with_nan_exog_and_init_window():
     r0 = make_small_arx_ride(50)
     r1 = make_small_arx_ride(50)
-    # inject NaN in exog for some timesteps to test skip
     r1.loc[10:15, "po"] = np.nan
     out = arx_no_fuite.prediction_arx_with_prev_rides_no_fuite(
         [r0, r1, r0], x_prev_rides=2, ridge_alpha=0.5, init_window=5
@@ -132,7 +124,7 @@ def test_arx_selected_invalid_target_and_nonfinite_prediction(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.calls = 0
 
-        def fit(self, X, y):
+        def fit(self, _X, y):
             return self
 
         def predict(self, X):
