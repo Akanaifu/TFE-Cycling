@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import ModelComparison from "../components/ModelComparison";
+import InterpretationGuide from "../components/InterpretationGuide";
 import { commonPipelineStyles } from "../components/pipelineStyles";
 
 export default function CompareModelsPage() {
@@ -55,6 +56,9 @@ export default function CompareModelsPage() {
         </Link>
       </div>
 
+      <div className="mb-6">
+        <InterpretationGuide context="compare" />
+      </div>
       {authChecked && <ModelComparison apiUrl={apiUrl} />}
     </div>
   );

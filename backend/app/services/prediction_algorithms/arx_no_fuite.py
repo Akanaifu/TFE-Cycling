@@ -110,6 +110,8 @@ def prediction_arx_with_prev_rides_no_fuite(
 
         if len(start_hr_vals) > 0:
             hr_init = float(np.median(np.array(start_hr_vals, dtype=float)))
+            if not np.isfinite(hr_init):
+                hr_init = float(np.nanmedian(y_train.to_numpy(dtype=float)))
         else:
             hr_init = float(np.nanmedian(y_train.to_numpy(dtype=float)))
 

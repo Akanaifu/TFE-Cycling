@@ -3,14 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PipelineRunner from "../components/PipelineRunner";
+import InterpretationGuide from "../components/InterpretationGuide";
 import { commonPipelineStyles } from "../components/pipelineStyles";
 
 export default function PredictionPipelinePage() {
   const router = useRouter();
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL || "",
-    [],
-  );
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
 
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -59,6 +57,8 @@ export default function PredictionPipelinePage() {
           et l&apos;applique sur les autres sorties
         </p>
         <div className="mt-8">
+          <InterpretationGuide context="pipeline" />
+          <div className="mt-4" />
           <PipelineRunner />
         </div>
       </div>

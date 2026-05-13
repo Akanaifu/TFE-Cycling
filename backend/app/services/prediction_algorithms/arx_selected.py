@@ -81,6 +81,10 @@ def prediction_arx_from_selected_ride(
     r_train = rides_out[train_idx]
     miss = [c for c in feature_cols + ["hr"] if c not in r_train.columns]
     if miss:
+        import warnings
+
+        msg = f"[Prediction ARX selected] Train ride {train_idx + 1}: missing columns {miss}. Predictions skipped."
+        warnings.warn(msg, UserWarning)
         return rides_out
 
     x_train = r_train.loc[:, feature_cols]
@@ -108,11 +112,12 @@ def prediction_arx_from_selected_ride(
     reg.fit(x_train.loc[valid], y_train.loc[valid])
 
     y_start = y_train.dropna().iloc[: max(1, int(init_window))]
-    hr_init = (
-        float(np.median(y_start.to_numpy(dtype=float)))
-        if len(y_start) > 0
-        else float(np.nanmedian(y_train.to_numpy(dtype=float)))
-    )
+    if len(y_start) > 0:
+        hr_init = float(np.median(y_start.to_numpy(dtype=float)))
+        if not np.isfinite(hr_init):
+            hr_init = float(np.nanmedian(y_train.to_numpy(dtype=float)))
+    else:
+        hr_init = float(np.nanmedian(y_train.to_numpy(dtype=float)))
     if not np.isfinite(hr_init):
         hr_init = 0.0
 

@@ -10,3 +10,5 @@ psycopg[binary]
 cryptography
 bcrypt
 PyJWT
+pytest
+pytest-cov
