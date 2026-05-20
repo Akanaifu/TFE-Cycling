@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
@@ -93,6 +94,16 @@ export default function LoginForm() {
             {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
+
+        <p className="text-center text-sm text-[#9fb3c8]">
+          Pas encore de compte ?{" "}
+          <Link
+            href="/register"
+            className="font-semibold text-[#ffd60a] transition-colors hover:text-[#fff8d6]"
+          >
+            Créer un compte
+          </Link>
+        </p>
       </div>
     </div>
   );

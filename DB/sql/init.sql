@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   display_name text,
   password_hash text NOT NULL,
   role text NOT NULL DEFAULT 'user',
+  email_verified_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -45,6 +46,19 @@ CREATE TABLE IF NOT EXISTS user_cyclists (
   cyclist text NOT NULL UNIQUE,
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK (cyclist ~ '^cyclist[0-9]+$')
+);
+
+CREATE TABLE IF NOT EXISTS verif_mail (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  email text NOT NULL,
+  code_hash text NOT NULL,
+  attempts_left integer NOT NULL DEFAULT 2 CHECK (attempts_left BETWEEN 0 AND 2),
+  expires_at timestamptz NOT NULL,
+  sent_at timestamptz NOT NULL DEFAULT now(),
+  verified_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS sync_jobs (

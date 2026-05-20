@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 import importlib
 
-
 CYCLIST_PATTERN_PREFIX = "cyclist"
 
 
@@ -107,6 +106,7 @@ def get_database_status() -> dict[str, Any]:
                     "users",
                     "strava_accounts",
                     "rides",
+                    "verif_mail",
                     "sync_jobs",
                     "prediction_runs",
                     "app_config_secrets",
@@ -178,16 +178,14 @@ def _extract_cyclist_from_file_path_value(file_path: str) -> str | None:
 
 
 def _ensure_user_cyclists_table(cur: Any) -> None:
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS user_cyclists (
             user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
             cyclist text NOT NULL UNIQUE,
             created_at timestamptz NOT NULL DEFAULT now(),
             CHECK (cyclist ~ '^cyclist[0-9]+$')
         )
-        """
-    )
+        """)
 
 
 def _get_mapped_cyclist_for_user(cur: Any, user_id: str) -> str | None:
@@ -306,7 +304,7 @@ def build_strava_activity_file_path(
 def get_user_by_email(email: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, email, display_name, password_hash, role, created_at
+        SELECT id, email, display_name, password_hash, role, email_verified_at, created_at
         FROM users
         WHERE email = %s
         LIMIT 1
@@ -321,7 +319,7 @@ def get_user_by_email(email: str) -> dict[str, Any] | None:
 def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, email, display_name, password_hash, role, created_at
+        SELECT id, email, display_name, password_hash, role, email_verified_at, created_at
         FROM users
         WHERE id = %s
         LIMIT 1
@@ -357,6 +355,7 @@ def create_user(
     password_hash: str,
     display_name: str = "",
     role: str = "user",
+    email_verified_at: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Create a new user with email, password hash, and optional display name."""
     psycopg, rows = _get_psycopg_modules()
@@ -367,18 +366,122 @@ def create_user(
         return None
 
     query = """
-        INSERT INTO users (email, password_hash, display_name, role)
-        VALUES (%s, %s, %s, %s)
-        RETURNING id, email, display_name, password_hash, role, created_at
+        INSERT INTO users (email, password_hash, display_name, role, email_verified_at)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id, email, display_name, password_hash, role, email_verified_at, created_at
     """
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 query,
-                (email.strip().lower(), password_hash, display_name, role),
+                (
+                    email.strip().lower(),
+                    password_hash,
+                    display_name,
+                    role,
+                    email_verified_at,
+                ),
             )
             row = cur.fetchone()
             return dict(row) if row else None
+
+
+def create_email_verification_request(
+    *,
+    user_id: str,
+    email: str,
+    code_hash: str,
+    expires_at: datetime,
+    attempts_left: int = 2,
+) -> dict[str, Any]:
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        INSERT INTO verif_mail (
+            user_id,
+            email,
+            code_hash,
+            attempts_left,
+            expires_at,
+            sent_at,
+            updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, now(), now())
+        ON CONFLICT (user_id) DO UPDATE SET
+            email = EXCLUDED.email,
+            code_hash = EXCLUDED.code_hash,
+            attempts_left = EXCLUDED.attempts_left,
+            expires_at = EXCLUDED.expires_at,
+            sent_at = now(),
+            verified_at = NULL,
+            updated_at = now()
+        RETURNING id, user_id, email, code_hash, attempts_left, expires_at, sent_at, verified_at, created_at, updated_at
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                query,
+                (
+                    user_id,
+                    email.strip().lower(),
+                    code_hash,
+                    int(attempts_left),
+                    expires_at,
+                ),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else {}
+
+
+def get_email_verification_request(user_id: str) -> dict[str, Any] | None:
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        SELECT id, user_id, email, code_hash, attempts_left, expires_at, sent_at, verified_at, created_at, updated_at
+        FROM verif_mail
+        WHERE user_id = %s
+        LIMIT 1
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (user_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def decrement_email_verification_attempt(user_id: str) -> dict[str, Any] | None:
+    psycopg, rows = _get_psycopg_modules()
+    query = """
+        UPDATE verif_mail
+        SET attempts_left = GREATEST(attempts_left - 1, 0),
+            updated_at = now()
+        WHERE user_id = %s
+          AND attempts_left > 0
+        RETURNING id, user_id, email, code_hash, attempts_left, expires_at, sent_at, verified_at, created_at, updated_at
+    """
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (user_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def mark_user_email_verified(user_id: str) -> None:
+    psycopg, _rows = _get_psycopg_modules()
+    with psycopg.connect(get_database_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = %s",
+                (user_id,),
+            )
+            cur.execute("DELETE FROM verif_mail WHERE user_id = %s", (user_id,))
+        conn.commit()
+
+
+def delete_user_by_id(user_id: str) -> None:
+    psycopg, _rows = _get_psycopg_modules()
+    with psycopg.connect(get_database_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        conn.commit()
 
 
 def upsert_strava_account_for_user(

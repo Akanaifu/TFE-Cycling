@@ -1,8 +1,10 @@
 """Authentication routes."""
 
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.services import email_verification as email_verification_service
 import app.services.auth as auth_service
 import app.services.database as database_service
 from app.services.cookie_auth import set_auth_cookie, clear_auth_cookie
@@ -33,6 +35,13 @@ class AuthRegisterRequest(BaseModel):
     display_name: str = Field(default="")
 
 
+class AuthVerifyEmailRequest(BaseModel):
+    """Request payload for email verification endpoint."""
+
+    email: str = Field(..., min_length=3)
+    code: str = Field(..., min_length=6, max_length=6)
+
+
 def _enforce_auth_rate_limit(request: Request, email_hint: str = "") -> None:
     """Rate limit authentication attempts."""
     now = time.time()
@@ -60,8 +69,23 @@ async def auth_login(
 ) -> dict:
     """Authenticate a user and return a JWT access token."""
     _enforce_auth_rate_limit(request, payload.email)
-    user = auth_service.authenticate_user(payload.email, payload.password)
+    email = payload.email.strip().lower()
+    user = database_service.get_user_by_email(email)
     if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    if not user.get("email_verified_at"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email address not verified",
+        )
+
+    if not auth_service.verify_password(
+        payload.password, str(user.get("password_hash", ""))
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -84,21 +108,111 @@ async def auth_login(
     }
 
 
+@router.post("/signup")
+async def auth_signup(payload: AuthRegisterRequest, request: Request) -> dict:
+    """Create a new user account and send a verification code by email."""
+    _enforce_auth_rate_limit(request, payload.email)
+    email = payload.email.strip().lower()
+
+    existing = database_service.get_user_by_email(email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+
+    try:
+        password_hash = auth_service.hash_password(payload.password)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Password hashing failed: {exc}",
+        ) from exc
+
+    user = database_service.create_user(
+        email=email,
+        password_hash=password_hash,
+        display_name=payload.display_name.strip(),
+        role="user",
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user",
+        )
+
+    try:
+        email_verification_service.issue_verification_code(
+            user_id=str(user["id"]),
+            email=str(user["email"]),
+            display_name=str(user.get("display_name", "")),
+        )
+    except (RuntimeError, ValueError, OSError) as exc:
+        database_service.delete_user_by_id(str(user["id"]))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to send verification email: {exc}",
+        ) from exc
+
+    return {
+        "ok": True,
+        "message": "User account created. Check your email for the verification code.",
+        "user": {
+            "id": str(user["id"]),
+            "email": str(user["email"]),
+            "display_name": user.get("display_name"),
+            "role": user.get("role", "user"),
+            "email_verified": False,
+        },
+    }
+
+
+@router.post("/verify-email")
+async def auth_verify_email(payload: AuthVerifyEmailRequest, request: Request) -> dict:
+    """Validate the code sent by email and activate the account."""
+    _enforce_auth_rate_limit(request, payload.email)
+    email = payload.email.strip().lower()
+    user = database_service.get_user_by_email(email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if user.get("email_verified_at"):
+        return {"ok": True, "message": "Email already verified"}
+
+    is_valid = email_verification_service.verify_code(
+        user_id=str(user["id"]),
+        code=payload.code,
+    )
+    if not is_valid:
+        record = database_service.get_email_verification_request(str(user["id"]))
+        if record and int(record.get("attempts_left") or 0) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Verification code locked after 2 failed attempts",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code",
+        )
+
+    return {"ok": True, "message": "Email verified successfully"}
+
+
 @router.post("/register")
 async def auth_register(
     payload: AuthRegisterRequest,
     request: Request,
-    current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
-    """Register a new user account (admin only)."""
-    from app.services.authorization import is_admin
+    """Register a new user account (open registration).
 
-    if not is_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can create user accounts",
-        )
-
+    This endpoint used to be admin-only. It now behaves like `/auth/signup`:
+    - creates a new user with role `user` (not email-verified)
+    - issues a verification code by email
+    """
     _enforce_auth_rate_limit(request, payload.email)
     email = payload.email.strip().lower()
 
@@ -119,7 +233,7 @@ async def auth_register(
             detail=f"Password hashing failed: {exc}",
         ) from exc
 
-    # Create user
+    # Create user (not verified)
     user = database_service.create_user(
         email=email,
         password_hash=password_hash,
@@ -133,14 +247,28 @@ async def auth_register(
             detail="Failed to create user",
         )
 
+    try:
+        email_verification_service.issue_verification_code(
+            user_id=str(user["id"]),
+            email=str(user["email"]),
+            display_name=str(user.get("display_name", "")),
+        )
+    except (RuntimeError, ValueError, OSError) as exc:
+        database_service.delete_user_by_id(str(user["id"]))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to send verification email: {exc}",
+        ) from exc
+
     return {
         "ok": True,
-        "message": "User account created",
+        "message": "User account created. Check your email for the verification code.",
         "user": {
             "id": str(user["id"]),
             "email": str(user["email"]),
             "display_name": user.get("display_name"),
             "role": user.get("role", "user"),
+            "email_verified": False,
         },
     }
 
