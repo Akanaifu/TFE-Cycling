@@ -1,4 +1,4 @@
-"""Email verification helpers and SMTP delivery for new user signup."""
+"""Email verification helpers and Apprise delivery for new user signup."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import hmac
 import os
 from pathlib import Path
 import secrets
-from urllib.parse import quote_plus
 
 from apprise import Apprise
 from typing import Any
@@ -82,41 +81,10 @@ def hash_verification_code(code: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _smtp_settings() -> dict[str, Any]:
-    host = _read_env("MAIL_SMTP_HOST", "")
-    if not host:
-        raise ValueError("Missing MAIL_SMTP_HOST in environment")
-
-    port = _read_int_env("MAIL_SMTP_PORT", 587)
-    username = _read_env("MAIL_SMTP_USERNAME", "")
-    password = _read_env("MAIL_SMTP_PASSWORD", "")
-    from_email = _read_env("MAIL_FROM_ADDRESS", username or "")
-    if not from_email:
-        raise ValueError(
-            "Missing MAIL_FROM_ADDRESS (or MAIL_SMTP_USERNAME) in environment"
-        )
-
-    # Avoid obviously placeholder sender addresses when a real authenticated
-    # username is available. Many SMTP relays reject example.com senders.
-    if (
-        username
-        and from_email.lower().endswith("@example.com")
-        and _read_env("MAIL_FROM_ADDRESS", "").lower().endswith("@example.com")
-    ):
-        from_email = username
-
-    is_local_host = host.lower() in {"localhost", "127.0.0.1", "::1"}
-
-    return {
-        "host": host,
-        "port": port,
-        "username": "" if is_local_host else username,
-        "password": "" if is_local_host else password,
-        "from_email": from_email,
-        "from_name": _read_env("MAIL_FROM_NAME", "TFE Cycling"),
-        "use_tls": _read_bool_env("MAIL_SMTP_USE_TLS", False),
-        "use_ssl": _read_bool_env("MAIL_SMTP_USE_SSL", True),
-    }
+def _apprise_urls() -> list[str]:
+    raw_urls = _read_env("APPRISE_URL", "")
+    urls = [line.strip() for line in raw_urls.replace(";", "\n").splitlines()]
+    return [url for url in urls if url]
 
 
 def build_verification_email_body(
@@ -133,7 +101,6 @@ def build_verification_email_body(
 
 
 def send_verification_email(*, to_email: str, display_name: str, code: str) -> None:
-    settings = _smtp_settings()
     expires_in_minutes = _read_int_env("MAIL_VERIFICATION_EXPIRE_MINUTES", 10)
 
     title = "Ton code de vérification TFE Cycling"
@@ -141,45 +108,18 @@ def send_verification_email(*, to_email: str, display_name: str, code: str) -> N
         display_name=display_name, code=code, expires_in_minutes=expires_in_minutes
     )
 
-    # Build Apprise mail URL using the documented custom SMTP syntax.
-    user = settings.get("username", "")
-    pwd = settings.get("password", "")
-    host = settings.get("host")
-    port = settings.get("port")
-    from_addr = settings.get("from_email")
-    use_ssl = settings.get("use_ssl", False)
-    use_tls = settings.get("use_tls", False)
-
-    to_addr = to_email.strip().lower()
-    from_value = quote_plus(f'{settings["from_name"]} <{from_addr}>')
-    to_value = quote_plus(to_addr)
-    auth_query = ""
-    if user:
-        auth_query = f"&user={quote_plus(user)}&pass={quote_plus(pwd)}"
-
-    if use_ssl:
-        scheme = "mailto"
-        mode_query = "&mode=ssl"
-    elif use_tls:
-        scheme = "mailtos"
-        mode_query = ""
-    else:
-        scheme = "mailto"
-        mode_query = ""
-
-    url = (
-        f"{scheme}://_?smtp={host}:{port}{auth_query}"
-        f"&from={from_value}&to={to_value}{mode_query}"
-    )
-
     a = Apprise()
-    if not a.add(url):
-        raise ValueError(f"Invalid Apprise mail URL: {url}")
+    urls = _apprise_urls()
+    if not urls:
+        raise ValueError("Missing APPRISE_URL or APPRISE_URLS in environment")
+
+    for url in urls:
+        url = f"{url}&to={to_email}"
+        if not a.add(url):
+            raise ValueError(f"Invalid Apprise URL: {url}")
 
     if not a.notify(title=title, body=body):
-        raise RuntimeError(
-            f"Apprise did not send the verification email using url={url}"
-        )
+        raise RuntimeError("Apprise did not send the verification email")
 
 
 def issue_verification_code(
@@ -189,7 +129,6 @@ def issue_verification_code(
     expires_in_minutes = _read_int_env("MAIL_VERIFICATION_EXPIRE_MINUTES", 10)
     attempts_left = _read_int_env("MAIL_VERIFICATION_MAX_ATTEMPTS", 2)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
-
     record = database_service.create_email_verification_request(
         user_id=user_id,
         email=email,

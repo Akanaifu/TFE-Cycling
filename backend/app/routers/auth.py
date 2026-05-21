@@ -1,5 +1,3 @@
-"""Authentication routes."""
-
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -108,66 +106,6 @@ async def auth_login(
     }
 
 
-@router.post("/signup")
-async def auth_signup(payload: AuthRegisterRequest, request: Request) -> dict:
-    """Create a new user account and send a verification code by email."""
-    _enforce_auth_rate_limit(request, payload.email)
-    email = payload.email.strip().lower()
-
-    existing = database_service.get_user_by_email(email)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-
-    try:
-        password_hash = auth_service.hash_password(payload.password)
-    except (RuntimeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Password hashing failed: {exc}",
-        ) from exc
-
-    user = database_service.create_user(
-        email=email,
-        password_hash=password_hash,
-        display_name=payload.display_name.strip(),
-        role="user",
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user",
-        )
-
-    try:
-        email_verification_service.issue_verification_code(
-            user_id=str(user["id"]),
-            email=str(user["email"]),
-            display_name=str(user.get("display_name", "")),
-        )
-    except (RuntimeError, ValueError, OSError) as exc:
-        database_service.delete_user_by_id(str(user["id"]))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to send verification email: {exc}",
-        ) from exc
-
-    return {
-        "ok": True,
-        "message": "User account created. Check your email for the verification code.",
-        "user": {
-            "id": str(user["id"]),
-            "email": str(user["email"]),
-            "display_name": user.get("display_name"),
-            "role": user.get("role", "user"),
-            "email_verified": False,
-        },
-    }
-
-
 @router.post("/verify-email")
 async def auth_verify_email(payload: AuthVerifyEmailRequest, request: Request) -> dict:
     """Validate the code sent by email and activate the account."""
@@ -208,8 +146,6 @@ async def auth_register(
     request: Request,
 ) -> dict:
     """Register a new user account (open registration).
-
-    This endpoint used to be admin-only. It now behaves like `/auth/signup`:
     - creates a new user with role `user` (not email-verified)
     - issues a verification code by email
     """
