@@ -19,47 +19,47 @@ export default function InterpretationGuide({ context = "pipeline" }: Props) {
           <h3 className={commonPipelineStyles.subSectionTitle}>
             Prédictions vs réalité
           </h3>
-          <p className={commonPipelineStyles.bodyText}>
+          <div className={commonPipelineStyles.bodyText}>
             Le graphique montre la fréquence cardiaque réelle et les courbes de
             prédiction. Trois cas possibles :
-            <ul>
-              <li>
-                Courbes quasi identiques : pas de changement de la forme
-                physique{" "}
-              </li>
-              <li>
-                Courbe de prédiction plus basse : amélioration de la forme
-                physique car pour un même effort, le coeur est moins solicité
-              </li>
-              <li>
-                Courbe de prédiction plus haute : dégradation de la forme
-                physique car pour un même effort, le coeur est plus solicité
-              </li>
-            </ul>
-          </p>
+          </div>
+          <ul className={commonPipelineStyles.bodyText}>
+            <li>
+              Courbes quasi identiques : pas de changement de la forme
+              physique{" "}
+            </li>
+            <li>
+              Courbe de prédiction plus basse : amélioration de la forme
+              physique car pour un même effort, le coeur est moins solicité
+            </li>
+            <li>
+              Courbe de prédiction plus haute : dégradation de la forme physique
+              car pour un même effort, le coeur est plus solicité
+            </li>
+          </ul>
         </div>
 
         <div>
           <h3 className={commonPipelineStyles.subSectionTitle}>
             Différences BPM (prédiction − réel)
           </h3>
-          <p className={commonPipelineStyles.bodyText}>
+          <div className={commonPipelineStyles.bodyText}>
             Le diagramme des différences calcule (prédiction − réel) par point.
-            <ul>
-              <li>
-                Valeurs positives : le modèle surestime la FC / dégradation de
-                la forme physique
-              </li>
-              <li>
-                Valeurs négatives : le modèle sous‑estime la FC. / amélioration
-                de la forme physique
-              </li>
-              <li>
-                Moyenne proche de 0 et faible dispersion → bon ajustement /
-                maintient de la forme physique
-              </li>
-            </ul>
-          </p>
+          </div>
+          <ul className={commonPipelineStyles.bodyText}>
+            <li>
+              Valeurs positives : le modèle surestime la FC / dégradation de la
+              forme physique
+            </li>
+            <li>
+              Valeurs négatives : le modèle sous‑estime la FC. / amélioration de
+              la forme physique
+            </li>
+            <li>
+              Moyenne proche de 0 et faible dispersion → bon ajustement /
+              maintient de la forme physique
+            </li>
+          </ul>
           <p className={commonPipelineStyles.mutedText}>
             Résultat à ne pas prendre au pied de la lettre. Ce sont des
             prédictions, des erreurs peuvent arriver. Il y a beaucoup de

@@ -19,7 +19,6 @@ import pandas as pd
 
 from app.services.security import encrypt_secret_fernet
 
-
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"
 API_BASE = "https://www.strava.com/api/v3"
@@ -438,7 +437,7 @@ def get_athlete_activities(
     """
     params: dict[str, Any] = {
         "page": 1,
-        "per_page": limit + 1,
+        "per_page": limit,
     }
     if before is not None:
         params["before"] = before
