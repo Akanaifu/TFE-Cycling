@@ -1,7 +1,5 @@
-import React, { Suspense } from "react";
-import dynamic from "next/dynamic";
-
-const ClientVerify = dynamic(() => import("./ClientVerify"), { ssr: false });
+import React, { Suspense } from "react"
+import ClientVerify from "./ClientVerify"
 
 export default function VerifyEmailPage() {
   return (
