@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import secrets
 
-from apprise import Apprise
+from apprise import Apprise, NotifyFormat
 from typing import Any
 
 from app.services import database as database_service
@@ -90,13 +90,20 @@ def _apprise_urls() -> list[str]:
 def build_verification_email_body(
     *, display_name: str, code: str, expires_in_minutes: int
 ) -> str:
-    recipient = display_name.strip() or "Bonjour"
+    name = (display_name or "").strip()
+    recipient = f"Bonjour {name}".strip() if name else "Bonjour"
+
+    # HTML email with large centered code block
     return (
-        f"{recipient},\n\n"
-        "Voici ton code de vérification pour activer ton compte TFE Cycling :\n\n"
-        f"{code}\n\n"
-        f"Ce code est valable pendant {expires_in_minutes} minutes et tu n'as que 2 essais.\n"
-        "Si tu n'as pas demandé cette création de compte, tu peux ignorer ce message.\n"
+        '<html><body style="font-family:system-ui,Arial,sans-serif;color:#111;">'
+        f"<p>{recipient},</p>"
+        "<p>Voici ton code de vérification pour activer ton compte <strong>TFE Cycling</strong> :</p>"
+        '<div style="display:flex;justify-content:center;align-items:center;margin:24px 0;">'
+        f'<div style="font-size:48px;font-weight:700;letter-spacing:6px;padding:20px 32px;border-radius:8px;background:#f3f4f6;border:1px solid #e5e7eb;font-family:monospace;">{code}</div>'
+        "</div>"
+        f"<p>Ce code est valable pendant <strong>{expires_in_minutes} minutes</strong> et tu n'as que <strong>2 essais</strong>.</p>"
+        "<p>Si tu n'as pas demandé cette création de compte, tu peux ignorer ce message.</p>"
+        "</body></html>"
     )
 
 
@@ -118,7 +125,7 @@ def send_verification_email(*, to_email: str, display_name: str, code: str) -> N
         if not a.add(url):
             raise ValueError(f"Invalid Apprise URL: {url}")
 
-    if not a.notify(title=title, body=body):
+    if not a.notify(title=title, body=body, body_format=NotifyFormat.HTML):
         raise RuntimeError("Apprise did not send the verification email")
 
 
