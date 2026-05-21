@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-import os
 from pathlib import Path
 from typing import Any
 import importlib
+from .utils import _read_env
 
 CYCLIST_PATTERN_PREFIX = "cyclist"
 
@@ -19,31 +19,6 @@ def get_all_rides() -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(query)
             return cur.fetchall()
-
-
-def _read_env_file() -> dict[str, str]:
-    """Read backend .env as fallback if process env is missing."""
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
-        return {}
-
-    parsed: dict[str, str] = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        parsed[key.strip()] = value.strip().strip('"').strip("'")
-    return parsed
-
-
-def _read_env(name: str, default: str = "") -> str:
-    file_env = _read_env_file()
-    if name in file_env and file_env[name] != "":
-        value = file_env[name]
-    else:
-        value = os.getenv(name, default)
-    return value.strip() if isinstance(value, str) else str(value)
 
 
 def get_database_url() -> str:
@@ -636,6 +611,37 @@ def get_all_cyclists_from_rides() -> list[str]:
             cyclists.update(_extract_cyclists_from_paths(rows_data))
 
     return _sorted_cyclists(cyclists)
+
+
+def get_admin_cyclist_options() -> list[dict[str, str]]:
+    """Return admin-facing cyclist options with display labels when available."""
+    psycopg, rows = _get_psycopg_modules()
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            _ensure_user_cyclists_table(cur)
+
+            used_cyclists = _all_used_cyclists(cur)
+            display_names: dict[str, str] = {}
+
+            cur.execute("""
+                SELECT uc.cyclist, u.display_name
+                FROM user_cyclists uc
+                LEFT JOIN users u ON u.id = uc.user_id
+                """)
+            for row in cur.fetchall():
+                cyclist = str(row.get("cyclist", "") or "").strip()
+                if not cyclist:
+                    continue
+                display_name = str(row.get("display_name", "") or "").strip()
+                display_names[cyclist] = display_name
+
+    return [
+        {
+            "value": cyclist,
+            "label": display_names.get(cyclist) or cyclist,
+        }
+        for cyclist in _sorted_cyclists(used_cyclists)
+    ]
 
 
 def get_user_allowed_cyclists(user_id: str) -> list[str]:

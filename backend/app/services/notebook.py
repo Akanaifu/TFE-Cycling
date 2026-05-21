@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 import os
 import warnings
-
 import numpy as np
 import pandas as pd
+from .utils import _is_truthy_env
 
 PREDICTION_PARAMS: dict[str, dict[str, Any]] = {
     "default": {"lag_start": 5},
@@ -58,10 +58,6 @@ PHYSIO_MODEL_SPECS: dict[str, dict[str, str]] = {
         "label": "pred_physio_alt_fitting",
     },
 }
-
-
-def _is_truthy_env(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _get_pickle_signing_secret() -> str:
