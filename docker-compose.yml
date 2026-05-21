@@ -17,12 +17,12 @@ services:
     container_name: tfe_backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tfe_user}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-tfe_cycling}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tfe_user}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-tfe_cycling}
       PGHOST: postgres
       PGPORT: ${PGPORT:-5432}
       PGDATABASE: ${PGDATABASE:-tfe_cycling}
       PGUSER: ${PGUSER:-tfe_user}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change_me}
       APP_FERNET_KEY: ${APP_FERNET_KEY:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-}
