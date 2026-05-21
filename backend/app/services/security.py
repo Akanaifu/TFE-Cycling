@@ -1,8 +1,8 @@
 """Security helpers for reversible encryption of sensitive values."""
 
 from __future__ import annotations
-from utils import _read_env
 from cryptography.fernet import Fernet, InvalidToken
+from .utils import _read_env
 
 
 def get_fernet_key() -> str:

@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 import importlib
-from utils import _read_env
+from .utils import _read_env
 
 CYCLIST_PATTERN_PREFIX = "cyclist"
 
@@ -611,6 +611,37 @@ def get_all_cyclists_from_rides() -> list[str]:
             cyclists.update(_extract_cyclists_from_paths(rows_data))
 
     return _sorted_cyclists(cyclists)
+
+
+def get_admin_cyclist_options() -> list[dict[str, str]]:
+    """Return admin-facing cyclist options with display labels when available."""
+    psycopg, rows = _get_psycopg_modules()
+    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
+        with conn.cursor() as cur:
+            _ensure_user_cyclists_table(cur)
+
+            used_cyclists = _all_used_cyclists(cur)
+            display_names: dict[str, str] = {}
+
+            cur.execute("""
+                SELECT uc.cyclist, u.display_name
+                FROM user_cyclists uc
+                LEFT JOIN users u ON u.id = uc.user_id
+                """)
+            for row in cur.fetchall():
+                cyclist = str(row.get("cyclist", "") or "").strip()
+                if not cyclist:
+                    continue
+                display_name = str(row.get("display_name", "") or "").strip()
+                display_names[cyclist] = display_name
+
+    return [
+        {
+            "value": cyclist,
+            "label": display_names.get(cyclist) or cyclist,
+        }
+        for cyclist in _sorted_cyclists(used_cyclists)
+    ]
 
 
 def get_user_allowed_cyclists(user_id: str) -> list[str]:

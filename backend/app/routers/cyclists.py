@@ -1,12 +1,12 @@
 """Cyclist data routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-import logging
+from fastapi import APIRouter, Depends, HTTPException
 
 import app.services.auth as auth_service
 import app.services.database as database_service
-import app.services.notebook as notebook_service
-from app.services.authorization import is_admin, resolve_authorized_cyclist_and_dir
+from app.services.authorization import is_admin
+
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ async def get_cyclists_list(
     """List all available cyclists."""
     try:
         if is_admin(current_user):
-            cyclists = database_service.get_all_cyclists_from_rides()
+            cyclists = database_service.get_admin_cyclist_options()
         else:
             cyclists = database_service.get_user_allowed_cyclists(
                 str(current_user["id"])

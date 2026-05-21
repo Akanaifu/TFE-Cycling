@@ -9,6 +9,9 @@ def is_truthy_env(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+_is_truthy_env = is_truthy_env
+
+
 def is_pkl_diagnostic_enabled() -> bool:
     """Check if PKL file diagnostics are enabled via env."""
     return is_truthy_env(os.getenv("ENABLE_PKL_DIAGNOSTIC", ""))

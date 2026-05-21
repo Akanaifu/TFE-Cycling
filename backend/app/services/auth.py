@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import importlib
 from typing import Any
-from utils import _read_env
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.services import database as database_service
+from .utils import _read_env
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

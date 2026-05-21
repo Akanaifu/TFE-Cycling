@@ -10,13 +10,52 @@ interface CyclistSelectorProps {
   onMaxRideIndexChange?: (max: number) => void;
 }
 
+interface CyclistOption {
+  value: string;
+  label: string;
+}
+
+function formatCyclistLabel(cyclist: string): string {
+  return (
+    cyclist.charAt(0).toUpperCase() +
+    cyclist.slice(1).replace("cyclist", "Cycliste ")
+  );
+}
+
+function normalizeCyclistOption(value: unknown): CyclistOption | null {
+  if (typeof value === "string") {
+    return {
+      value,
+      label: formatCyclistLabel(value),
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const cyclistValue = String(record.value ?? record.cyclist ?? "").trim();
+  if (!cyclistValue) {
+    return null;
+  }
+
+  const label = String(
+    record.label ?? record.display_name ?? cyclistValue,
+  ).trim();
+  return {
+    value: cyclistValue,
+    label: label || formatCyclistLabel(cyclistValue),
+  };
+}
+
 export default function CyclistSelector({
   onSelectCyclist,
   selectedCyclist,
   isAdmin,
   onMaxRideIndexChange,
 }: CyclistSelectorProps) {
-  const [cyclists, setCyclists] = useState<string[]>([]);
+  const [cyclists, setCyclists] = useState<CyclistOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,12 +77,22 @@ export default function CyclistSelector({
         }
 
         const data = await response.json();
-        const fetchedCyclists = data.cyclists || [];
+        const rawCyclists: unknown[] = Array.isArray(data.cyclists)
+          ? data.cyclists
+          : [];
+        const fetchedCyclists = rawCyclists
+          .map(normalizeCyclistOption)
+          .filter((cyclist): cyclist is CyclistOption => cyclist !== null);
         setCyclists(fetchedCyclists);
 
         if (fetchedCyclists.length > 0) {
-          if (!selectedCyclist || !fetchedCyclists.includes(selectedCyclist)) {
-            onSelectCyclist(fetchedCyclists[0]);
+          if (
+            !selectedCyclist ||
+            !fetchedCyclists.some(
+              (cyclist: CyclistOption) => cyclist.value === selectedCyclist,
+            )
+          ) {
+            onSelectCyclist(fetchedCyclists[0].value);
           }
         } else {
           onSelectCyclist("");
@@ -113,12 +162,11 @@ export default function CyclistSelector({
         >
           {cyclists.map((cyclist) => (
             <option
-              key={cyclist}
-              value={cyclist}
+              key={cyclist.value}
+              value={cyclist.value}
               className={cyclistSelectorStyles.option}
             >
-              {cyclist.charAt(0).toUpperCase() +
-                cyclist.slice(1).replace("cyclist", "Cycliste ")}
+              {cyclist.label}
             </option>
           ))}
         </select>

@@ -6,18 +6,16 @@ import base64
 import hashlib
 import hmac
 import json
-import os
-from pathlib import Path
 import secrets
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
-from utils import _read_env
 import pandas as pd
 
 from app.services.security import encrypt_secret_fernet
+from .utils import _read_env
 
 AUTH_URL = "https://www.strava.com/oauth/authorize"
 TOKEN_URL = "https://www.strava.com/oauth/token"

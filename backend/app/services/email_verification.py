@@ -8,8 +8,8 @@ import hmac
 import secrets
 from apprise import Apprise, NotifyFormat
 from typing import Any
-from utils import _read_env
 from app.services import database as database_service
+from .utils import _read_env
 
 CODE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
