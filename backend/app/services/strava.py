@@ -14,7 +14,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
-
+from utils import _read_env
 import pandas as pd
 
 from app.services.security import encrypt_secret_fernet
@@ -128,33 +128,6 @@ def _format_exchange_error(status_code: int, body: str) -> str:
         )
 
     return raw
-
-
-def _read_env_file() -> dict[str, str]:
-    """Read backend .env as a lightweight fallback when process env is missing."""
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
-        return {}
-
-    parsed: dict[str, str] = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        parsed[key] = value
-    return parsed
-
-
-def _read_env(name: str, default: str = "") -> str:
-    file_env = _read_env_file()
-    if name in file_env and file_env[name] != "":
-        value = file_env[name]
-    else:
-        value = os.getenv(name, default)
-    return value.strip() if isinstance(value, str) else str(value)
 
 
 def _read_env_any(names: list[str], default: str = "") -> str:

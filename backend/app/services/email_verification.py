@@ -5,45 +5,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
-import os
-from pathlib import Path
 import secrets
-
 from apprise import Apprise, NotifyFormat
 from typing import Any
-
+from utils import _read_env
 from app.services import database as database_service
 
 CODE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-
-def _read_env_file() -> dict[str, str]:
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
-        return {}
-
-    parsed: dict[str, str] = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        parsed[key.strip()] = value.strip().strip('"').strip("'")
-    return parsed
-
-
-def _read_env(name: str, default: str = "") -> str:
-    file_env = _read_env_file()
-    if name in file_env and file_env[name] != "":
-        value = file_env[name]
-    else:
-        value = os.getenv(name, default)
-    return value.strip() if isinstance(value, str) else str(value)
-
-
-def _read_bool_env(name: str, default: bool = False) -> bool:
-    raw = _read_env(name, "true" if default else "false").lower()
-    return raw in {"1", "true", "yes", "on"}
 
 
 def _read_int_env(name: str, default: int) -> int:

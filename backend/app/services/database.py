@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-import os
 from pathlib import Path
 from typing import Any
 import importlib
+from utils import _read_env
 
 CYCLIST_PATTERN_PREFIX = "cyclist"
 
@@ -19,31 +19,6 @@ def get_all_rides() -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(query)
             return cur.fetchall()
-
-
-def _read_env_file() -> dict[str, str]:
-    """Read backend .env as fallback if process env is missing."""
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
-        return {}
-
-    parsed: dict[str, str] = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        parsed[key.strip()] = value.strip().strip('"').strip("'")
-    return parsed
-
-
-def _read_env(name: str, default: str = "") -> str:
-    file_env = _read_env_file()
-    if name in file_env and file_env[name] != "":
-        value = file_env[name]
-    else:
-        value = os.getenv(name, default)
-    return value.strip() if isinstance(value, str) else str(value)
 
 
 def get_database_url() -> str:
