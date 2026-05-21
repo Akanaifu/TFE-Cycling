@@ -12,3 +12,4 @@ bcrypt
 PyJWT
 pytest
 pytest-cov
+apprise

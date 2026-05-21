@@ -1,47 +1,22 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   authPageStyles,
   commonPipelineStyles,
 } from "../components/pipelineStyles";
 
 export default function Register() {
+  const router = useRouter();
   const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [checkingAccess, setCheckingAccess] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    const checkAccess = async () => {
-      try {
-        const response = await fetch(`${apiUrl}/auth/me`, {
-          credentials: "include",
-        });
-        if (!response.ok) {
-          setIsAdmin(false);
-          return;
-        }
-
-        const payload = await response.json();
-        const role = String(payload?.user?.role ?? "").toLowerCase();
-        setIsAdmin(role === "admin");
-      } catch {
-        setIsAdmin(false);
-      } finally {
-        setCheckingAccess(false);
-      }
-    };
-
-    checkAccess();
-  }, [apiUrl]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,12 +59,9 @@ export default function Register() {
       }
 
       await response.json();
-      setSuccess(true);
-
-      setEmail("");
-      setPassword("");
-      setConfirmPassword("");
-      setDisplayName("");
+      router.push(
+        `/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`,
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Erreur lors de l'enregistrement",
@@ -99,58 +71,11 @@ export default function Register() {
     }
   };
 
-  if (checkingAccess) {
-    return (
-      <div className={commonPipelineStyles.pageContainer}>
-        <div className={authPageStyles.wrapper}>
-          <p className={authPageStyles.subtitle}>
-            Vérification des permissions...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className={commonPipelineStyles.pageContainer}>
-        <div className={authPageStyles.wrapper}>
-          <h1 className={authPageStyles.title}>Accès refusé</h1>
-          <p className={authPageStyles.subtitle}>
-            Seuls les administrateurs peuvent créer un compte.
-          </p>
-          <p className={authPageStyles.switchText}>
-            <Link href="/login" className={authPageStyles.switchLink}>
-              Retour à la connexion
-            </Link>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (success) {
-    return (
-      <div className={commonPipelineStyles.pageContainer}>
-        <div className="rounded-md border border-emerald-300 bg-emerald-50 p-6 text-center text-[#001d3d]">
-          <h2 className="text-lg font-bold text-emerald-900">
-            Compte créé avec succès !
-          </h2>
-          <p className="mt-2 text-emerald-700">
-            Le compte est prêt. Vous pouvez en créer un autre si nécessaire.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={commonPipelineStyles.pageContainer}>
       <div className={authPageStyles.wrapper}>
         <h1 className={authPageStyles.title}>Créer un compte</h1>
-        <p className={authPageStyles.subtitle}>
-          Création de compte administrateur.
-        </p>
+        <p className={authPageStyles.subtitle}>Crée ton compte personnel.</p>
 
         {error && <div className={authPageStyles.errorBox}>{error}</div>}
 
@@ -215,6 +140,16 @@ export default function Register() {
             {loading ? "Création en cours..." : "Créer le compte"}
           </button>
         </form>
+
+        <p className="text-center text-sm text-[#9fb3c8]">
+          Déjà un compte ?{" "}
+          <Link
+            href="/login"
+            className="font-semibold text-[#ffd60a] transition-colors hover:text-[#fff8d6]"
+          >
+            Se connecter
+          </Link>
+        </p>
       </div>
     </div>
   );

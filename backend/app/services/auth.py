@@ -11,8 +11,8 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.services import email_verification as email_verification_service
 from app.services import database as database_service
-
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -121,6 +121,9 @@ def create_access_token(*, user_id: str, email: str, role: str) -> str:
 def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
     user = database_service.get_user_by_email(email.strip().lower())
     if not user:
+        return None
+
+    if not user.get("email_verified_at"):
         return None
 
     if not verify_password(password, str(user.get("password_hash", ""))):
