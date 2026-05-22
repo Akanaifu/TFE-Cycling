@@ -7,7 +7,6 @@ Orchestrates routes through modular routers for maintainability.
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,10 +14,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-import app.services.auth as auth_service
 import app.services.database as database_service
 from app.core.logging import setup_logging
 from app.middleware.logging import log_requests
+from app.routers import (
+    auth,
+    strava,
+    cyclists,
+    rides,
+    analysis,
+    diagnostic,
+    health,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +34,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Configure structured logging and request-logging middleware
     setup_logging()
-    app.middleware("http")(log_requests)
     yield
 
 
 app = FastAPI(title="TFE Cycling API", version="0.1.0", lifespan=lifespan)
+
+app.middleware("http")(log_requests)
 
 
 # ── Startup Event: Security Checks ────────────────────────────────────────────
@@ -67,16 +75,6 @@ app.add_middleware(
 
 
 # ── Include Routers ───────────────────────────────────────────────────────────
-from app.routers import (
-    auth,
-    strava,
-    cyclists,
-    rides,
-    analysis,
-    diagnostic,
-    health,
-)
-
 app.include_router(diagnostic.router)
 app.include_router(auth.router)
 app.include_router(strava.router)
