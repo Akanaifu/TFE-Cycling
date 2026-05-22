@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,12 +17,21 @@ from fastapi.staticfiles import StaticFiles
 
 import app.services.auth as auth_service
 import app.services.database as database_service
+from app.core.logging import setup_logging
+from app.middleware.logging import log_requests
 
 logger = logging.getLogger(__name__)
 
 
-# ── Create FastAPI App ────────────────────────────────────────────────────────
-app = FastAPI(title="TFE Cycling API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Configure structured logging and request-logging middleware
+    setup_logging()
+    app.middleware("http")(log_requests)
+    yield
+
+
+app = FastAPI(title="TFE Cycling API", version="0.1.0", lifespan=lifespan)
 
 
 # ── Startup Event: Security Checks ────────────────────────────────────────────
@@ -64,6 +74,7 @@ from app.routers import (
     rides,
     analysis,
     diagnostic,
+    health,
 )
 
 app.include_router(diagnostic.router)
@@ -72,6 +83,7 @@ app.include_router(strava.router)
 app.include_router(cyclists.router)
 app.include_router(rides.router)
 app.include_router(analysis.router)
+app.include_router(health.router)
 
 
 # ── Serve React SPA ───────────────────────────────────────────────────────────

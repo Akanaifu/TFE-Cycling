@@ -1,0 +1,1 @@
+Add frontend tests here (Jest/RTL) as needed.
