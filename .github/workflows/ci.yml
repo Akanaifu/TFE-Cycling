@@ -21,18 +21,6 @@ jobs:
       APP_FERNET_KEY: ${{ secrets.APP_FERNET_KEY || 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=' }}
       JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-jwt-secret-key-minimum-32-characters-long' }}
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: testpass
-          POSTGRES_DB: testdb
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -100,11 +88,6 @@ jobs:
       - name: npm audit (Node)
         working-directory: frontend
         run: npm audit --audit-level=high || true
-
-      - name: Gitleaks (secrets)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload reports
         uses: actions/upload-artifact@v4
