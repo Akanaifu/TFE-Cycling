@@ -12,4 +12,5 @@ Operational tasks:
 
 - Ensure dependabot PRs are reviewed and merged regularly
 - Run vulnerability scans (pip-audit, npm audit) weekly via CI
+
 - Rotate secrets according to `docs/rotation.md` (if present)
