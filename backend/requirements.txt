@@ -13,4 +13,4 @@ PyJWT
 pytest
 pytest-cov
 apprise
-python-json-logger>=2.0.7
+python-json-logger>=4.1.0
