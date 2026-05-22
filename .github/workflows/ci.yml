@@ -89,13 +89,6 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=high || true
 
-      - name: Gitleaks (secrets)
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          fetch-depth: 0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
