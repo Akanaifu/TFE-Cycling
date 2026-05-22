@@ -16,8 +16,11 @@ export default function ClientVerify() {
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingResend, setLoadingResend] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [resendMsg, setResendMsg] = useState("");
+  const [resendError, setResendError] = useState("");
 
   useEffect(() => {
     if (initialEmail) setEmail(initialEmail);
@@ -69,6 +72,36 @@ export default function ClientVerify() {
     }
   };
 
+  const handleResend = async () => {
+    setResendError("");
+    setResendMsg("");
+
+    if (!email.trim()) {
+      setResendError("L'email est requis pour renvoyer le code");
+      return;
+    }
+
+    setLoadingResend(true);
+    try {
+      const response = await fetch(`${apiUrl}/auth/resend-verification`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setResendError(payload.detail || "Erreur lors de l'envoi du code");
+      } else {
+        setResendMsg(payload.message || "Code renvoyé. Vérifie ta boîte mail.");
+      }
+    } catch (err) {
+      setResendError(err instanceof Error ? err.message : "Erreur réseau");
+    } finally {
+      setLoadingResend(false);
+    }
+  };
+
   return (
     <div className={commonPipelineStyles.pageContainer}>
       <div className={authPageStyles.wrapper}>
@@ -79,6 +112,12 @@ export default function ClientVerify() {
 
         {error && <div className={authPageStyles.errorBox}>{error}</div>}
         {success && <div className={authPageStyles.errorBox}>{success}</div>}
+        {resendError && (
+          <div className={authPageStyles.errorBox}>{resendError}</div>
+        )}
+        {resendMsg && (
+          <div className={authPageStyles.errorBox}>{resendMsg}</div>
+        )}
 
         <form onSubmit={handleVerify} className={authPageStyles.form}>
           <div>
@@ -119,6 +158,15 @@ export default function ClientVerify() {
             className={`${commonPipelineStyles.buttonDark} ${authPageStyles.submitButton}`}
           >
             {loading ? "Vérification en cours..." : "Vérifier le compte"}
+          </button>
+          <button
+            type="button"
+            disabled={loadingResend || loading}
+            onClick={handleResend}
+            className={`${commonPipelineStyles.buttonDark} ${authPageStyles.submitButton}`}
+            style={{ marginLeft: 8 }}
+          >
+            {loadingResend ? "Renvoi en cours..." : "Renvoyer le code"}
           </button>
         </form>
 

@@ -16,6 +16,14 @@ import warnings
 import numpy as np
 import pandas as pd
 from .utils import _is_truthy_env
+from app.services.prediction_algorithms.arx_selected import (
+    prediction_arx_from_selected_ride,
+)
+from app.services.prediction_algorithms.default_model import prediction
+
+from app.services.prediction_algorithms.physiologic import (
+    prediction_physiologic,
+)
 
 PREDICTION_PARAMS: dict[str, dict[str, Any]] = {
     "default": {"lag_start": 5},
@@ -390,16 +398,6 @@ def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
         ride.attrs["ride_datetime_label"] = format_datetime_for_title(dt)
 
     return rides_feat
-
-
-from app.services.prediction_algorithms.arx_selected import (
-    prediction_arx_from_selected_ride,
-)
-from app.services.prediction_algorithms.default_model import prediction
-
-from app.services.prediction_algorithms.physiologic import (
-    prediction_physiologic,
-)
 
 
 @dataclass

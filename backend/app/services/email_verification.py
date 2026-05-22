@@ -10,6 +10,7 @@ from apprise import Apprise, NotifyFormat
 from typing import Any
 from app.services import database as database_service
 from .utils import _read_env
+import re
 
 CODE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -97,21 +98,49 @@ def send_verification_email(*, to_email: str, display_name: str, code: str) -> N
         raise RuntimeError("Apprise did not send the verification email")
 
 
+def sec2min(seconde: int) -> tuple[int, int]:
+    minute = seconde % 3600 // 60
+    seconde_remain = seconde % 3600 % 60
+    return minute, seconde_remain
+
+
 def issue_verification_code(
     *, user_id: str, email: str, display_name: str = ""
 ) -> dict[str, Any]:
+    # basic server-side email format validation
+    email_norm = (email or "").strip().lower()
+    EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    if not EMAIL_REGEX.match(email_norm):
+        raise ValueError("Invalid email format")
+
+    # rate-limit sending verification emails per user
+    min_interval = _read_int_env("MAIL_VERIFICATION_MIN_INTERVAL_SECONDS", 60)
+    existing = database_service.get_email_verification_request(user_id)
+    if existing:
+        sent_at = existing.get("sent_at")
+        if isinstance(sent_at, datetime) and sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+        if isinstance(sent_at, datetime):
+            now = datetime.now(timezone.utc)
+            elapsed = (now - sent_at).total_seconds()
+            if elapsed < min_interval:
+                remain_time = int(min_interval - elapsed)
+                minutes, sec = sec2min(remain_time)
+                raise RuntimeError(
+                    f"Verification email recently sent. Please wait {minutes:02d}m{sec:02d}s before retrying."
+                )
     code = generate_verification_code(6)
     expires_in_minutes = _read_int_env("MAIL_VERIFICATION_EXPIRE_MINUTES", 10)
     attempts_left = _read_int_env("MAIL_VERIFICATION_MAX_ATTEMPTS", 2)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
     record = database_service.create_email_verification_request(
         user_id=user_id,
-        email=email,
+        email=email_norm,
         code_hash=hash_verification_code(code),
         expires_at=expires_at,
         attempts_left=attempts_left,
     )
-    send_verification_email(to_email=email, display_name=display_name, code=code)
+    send_verification_email(to_email=email_norm, display_name=display_name, code=code)
     return {
         "verification": record,
         "expires_at": expires_at,
