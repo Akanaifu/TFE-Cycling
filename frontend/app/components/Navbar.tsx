@@ -22,7 +22,9 @@ export default function Navbar() {
     pathname === "/login" ||
     pathname === "/login/" ||
     pathname === "/register" ||
-    pathname === "/register/";
+    pathname === "/register/" ||
+    pathname === "/verify-email" ||
+    pathname === "/verify-email/";
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {

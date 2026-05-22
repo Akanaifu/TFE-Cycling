@@ -40,6 +40,12 @@ class AuthVerifyEmailRequest(BaseModel):
     code: str = Field(..., min_length=6, max_length=6)
 
 
+class AuthResendRequest(BaseModel):
+    """Request payload to resend verification code."""
+
+    email: str = Field(..., min_length=3)
+
+
 def _enforce_auth_rate_limit(request: Request, email_hint: str = "") -> None:
     """Rate limit authentication attempts."""
     now = time.time()
@@ -138,6 +144,51 @@ async def auth_verify_email(payload: AuthVerifyEmailRequest, request: Request) -
         )
 
     return {"ok": True, "message": "Email verified successfully"}
+
+
+@router.post("/resend-verification")
+async def auth_resend_verification(
+    payload: AuthResendRequest, request: Request
+) -> dict:
+    """Resend the verification code to a user's email (if user exists).
+
+    Enforce same auth rate limiting as other auth endpoints. Backend will
+    apply server-side min-interval checks to avoid spam.
+    """
+    _enforce_auth_rate_limit(request, payload.email)
+    email = payload.email.strip().lower()
+    user = database_service.get_user_by_email(email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if user.get("email_verified_at"):
+        return {"ok": True, "message": "Email already verified"}
+
+    try:
+        email_verification_service.issue_verification_code(
+            user_id=str(user["id"]),
+            email=str(user["email"]),
+            display_name=str(user.get("display_name", "")),
+        )
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "Please wait" in msg or "recently sent" in msg:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=msg
+            )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to resend verification email: {exc}",
+        )
+    except (ValueError, OSError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to resend verification email: {exc}",
+        )
+
+    return {"ok": True, "message": "Verification email resent. Check your inbox."}
 
 
 @router.post("/register")
