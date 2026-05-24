@@ -591,57 +591,48 @@ def _extract_cyclists_from_paths(rows_data: list[dict[str, Any]]) -> list[str]:
     return _sorted_cyclists(cyclists)
 
 
-def get_all_cyclists_from_rides() -> list[str]:
-    """Return all cyclist folder names from explicit mapping and legacy ride paths."""
+def _get_all_cyclist_options(cur: Any) -> tuple[list[str], dict[str, str]]:
+    """Return all known cyclist folder names and optional display names."""
+    used_cyclists = _all_used_cyclists(cur)
+    display_names: dict[str, str] = {}
+
+    cur.execute("""
+        SELECT uc.cyclist, u.display_name
+        FROM user_cyclists uc
+        LEFT JOIN users u ON u.id = uc.user_id
+        """)
+    for row in cur.fetchall():
+        cyclist = str(row.get("cyclist", "") or "").strip()
+        if not cyclist:
+            continue
+        display_name = str(row.get("display_name", "") or "").strip()
+        display_names[cyclist] = display_name
+
+    return _sorted_cyclists(used_cyclists), display_names
+
+
+def get_cyclist_options(*, admin: bool = False) -> list[str] | list[dict[str, str]]:
+    """Return cyclist options, with labels for admin-facing views.
+
+    Non-admin callers keep the legacy list[str] response.
+    Admin callers receive a list of {value, label} dictionaries.
+    """
     psycopg, rows = _get_psycopg_modules()
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
             _ensure_user_cyclists_table(cur)
 
-            cyclists: set[str] = set()
+            cyclists, display_names = _get_all_cyclist_options(cur)
+            if admin:
+                return [
+                    {
+                        "value": cyclist,
+                        "label": display_names.get(cyclist) or cyclist,
+                    }
+                    for cyclist in cyclists
+                ]
 
-            cur.execute("SELECT cyclist FROM user_cyclists")
-            for row in cur.fetchall():
-                cyclist = str(row.get("cyclist", "") or "").strip()
-                if cyclist:
-                    cyclists.add(cyclist)
-
-            cur.execute("SELECT file_path FROM rides")
-            rows_data = cur.fetchall()
-            cyclists.update(_extract_cyclists_from_paths(rows_data))
-
-    return _sorted_cyclists(cyclists)
-
-
-def get_admin_cyclist_options() -> list[dict[str, str]]:
-    """Return admin-facing cyclist options with display labels when available."""
-    psycopg, rows = _get_psycopg_modules()
-    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
-        with conn.cursor() as cur:
-            _ensure_user_cyclists_table(cur)
-
-            used_cyclists = _all_used_cyclists(cur)
-            display_names: dict[str, str] = {}
-
-            cur.execute("""
-                SELECT uc.cyclist, u.display_name
-                FROM user_cyclists uc
-                LEFT JOIN users u ON u.id = uc.user_id
-                """)
-            for row in cur.fetchall():
-                cyclist = str(row.get("cyclist", "") or "").strip()
-                if not cyclist:
-                    continue
-                display_name = str(row.get("display_name", "") or "").strip()
-                display_names[cyclist] = display_name
-
-    return [
-        {
-            "value": cyclist,
-            "label": display_names.get(cyclist) or cyclist,
-        }
-        for cyclist in _sorted_cyclists(used_cyclists)
-    ]
+            return cyclists
 
 
 def get_user_allowed_cyclists(user_id: str) -> list[str]:
@@ -660,11 +651,6 @@ def get_user_allowed_cyclists(user_id: str) -> list[str]:
 
             legacy = _legacy_cyclists_for_user(cur, user_id)
             return legacy
-
-
-def _get_user_default_cyclist(user_id: str) -> str:
-    """Resolve a unique cyclist folder for a user, allocating one when needed."""
-    return get_or_assign_user_cyclist(user_id)
 
 
 def upsert_rides_from_strava_activities(

@@ -43,7 +43,7 @@ def resolve_authorized_cyclist_and_dir(
         )
 
     if is_admin(user):
-        allowed_cyclists = set(database_service.get_all_cyclists_from_rides())
+        allowed_cyclists = set(database_service.get_cyclist_options(admin=True))
     else:
         allowed_cyclists = set(
             database_service.get_user_allowed_cyclists(str(user["id"]))
