@@ -55,5 +55,5 @@ def resolve_authorized_cyclist_and_dir(
             detail="Access denied for requested cyclist",
         )
 
-    effective_dir = f"../DB/rides/{requested_cyclist}"
+    effective_dir = str(database_service.get_cyclist_rides_dir(requested_cyclist))
     return requested_cyclist, effective_dir

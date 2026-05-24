@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import importlib
 from .utils import _read_env
+from .storage_paths import get_cyclist_rides_dir
 
 CYCLIST_PATTERN_PREFIX = "cyclist"
 
@@ -120,11 +121,6 @@ def _get_psycopg_modules() -> tuple[Any, Any]:
         return psycopg, rows
     except ModuleNotFoundError as exc:
         raise RuntimeError(f"Missing dependency psycopg: {exc}") from exc
-
-
-def get_project_root() -> Path:
-    """Return the repository root directory."""
-    return Path(__file__).resolve().parents[3]
 
 
 def _sorted_cyclists(cyclists: set[str]) -> list[str]:
@@ -272,7 +268,7 @@ def build_strava_activity_file_path(
         file_stem = f"activity_{activity_id}"
 
     file_name = f"{file_stem}_{athlete_id}_{activity_id}.pkl"
-    absolute_path = get_project_root() / "DB" / "rides" / cyclist_folder / file_name
+    absolute_path = get_cyclist_rides_dir(cyclist_folder) / file_name
     return file_name, absolute_path
 
 
@@ -577,7 +573,7 @@ def update_strava_account_tokens(
 
 def get_user_rides_dir(user_id: str) -> str | None:
     cyclist = get_or_assign_user_cyclist(user_id)
-    return f"DB/rides/{cyclist}"
+    return str(get_cyclist_rides_dir(cyclist))
 
 
 def _extract_cyclists_from_paths(rows_data: list[dict[str, Any]]) -> list[str]:

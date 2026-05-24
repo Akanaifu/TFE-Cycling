@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import hmac
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 import os
@@ -16,6 +17,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from .utils import _is_truthy_env
+from .storage_paths import get_cyclist_rides_dir, get_rides_root
 from app.services.prediction_algorithms.arx_selected import (
     prediction_arx_from_selected_ride,
 )
@@ -265,7 +267,7 @@ def list_cyclists() -> list[str]:
     Returns:
         List of cyclist names sorted numerically (cyclist0, cyclist1, etc.)
     """
-    rides_dir = _resolve_data_path("../DB/rides")
+    rides_dir = get_rides_root()
     if not rides_dir.exists():
         raise FileNotFoundError(f"Rides directory not found: {rides_dir}")
 
@@ -296,7 +298,7 @@ def get_single_ride(cyclist: str, ride_index: int) -> dict[str, Any]:
     if ride_index < 1:
         raise ValueError("ride_index must be >= 1")
 
-    rides_dir = _resolve_data_path(f"../DB/rides/{cyclist}")
+    rides_dir = get_cyclist_rides_dir(cyclist)
     if not rides_dir.exists() or not rides_dir.is_dir():
         raise FileNotFoundError(f"Cyclist directory not found: {rides_dir}")
 
@@ -371,12 +373,13 @@ def extract_donnee_pickle(dir_path: str | os.PathLike) -> list[pd.DataFrame]:
         [s for s in sorties if ".pkl" in s], key=parse_datetime_from_ride_filename
     ):
         fichier = resolved_dir / sortie
-        try:
+        ride = None
+        with suppress(FileNotFoundError, RuntimeError):
             ride = load_pickle_secure(fichier)
-        except Exception as exc:
-            skipped_files.append(f"{sortie}: {exc}")
+        if ride is None:
+            skipped_files.append(f"{sortie}: incompatible or unreadable pickle")
             warnings.warn(
-                f"Skipping incompatible pickle file {fichier.name}: {exc}",
+                f"Skipping incompatible pickle file {fichier.name}",
                 UserWarning,
             )
             continue

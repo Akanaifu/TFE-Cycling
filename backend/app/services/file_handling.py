@@ -1,9 +1,11 @@
 """File upload and handling utilities."""
 
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from fastapi import HTTPException, UploadFile, status
 import app.services.database as database_service
+from .storage_paths import get_cyclist_rides_dir, get_rides_root
 
 
 async def save_uploaded_fit_to_temp(upload: UploadFile, max_bytes: int) -> Path:
@@ -29,47 +31,23 @@ async def save_uploaded_fit_to_temp(upload: UploadFile, max_bytes: int) -> Path:
         temp_handle.close()
         return temp_path
     except Exception:
-        try:
+        with suppress(OSError):
             temp_handle.close()
-        except Exception:
-            pass
-        try:
+        with suppress(OSError):
             if temp_path.exists():
                 temp_path.unlink()
-        except Exception:
-            pass
         raise
     finally:
-        try:
+        with suppress(Exception):
             await upload.close()
-        except Exception:
-            pass
 
 
-def resolve_target_cyclist_for_fit_upload(
-    user: dict, cyclist_from_form: str | None
-) -> tuple[str, Path]:
+def resolve_target_cyclist_for_fit_upload(user: dict) -> tuple[str, Path]:
     """Resolve upload target cyclist and enforce access controls."""
-    from app.services.authorization import is_admin, resolve_authorized_cyclist_and_dir
-
-    if is_admin(user):
-        cyclist_name = str(cyclist_from_form or "").strip()
-        if not cyclist_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Admin must provide target cyclist.",
-            )
-        requested_cyclist, effective_dir = resolve_authorized_cyclist_and_dir(
-            user, f"../DB/rides/{cyclist_name}"
-        )
-    else:
-        requested_cyclist = database_service.get_or_assign_user_cyclist(str(user["id"]))
-        effective_dir = f"../DB/rides/{requested_cyclist}"
-
-    backend_dir = Path(__file__).resolve().parent.parent.parent  # Go up to backend/
-    target_dir = (backend_dir / effective_dir).resolve()
-    allowed_root = (backend_dir / "DB" / "rides").resolve()
-
+    # FIT imports are always stored under the current user's mapped cyclist.
+    requested_cyclist = database_service.get_or_assign_user_cyclist(str(user["id"]))
+    target_dir = get_cyclist_rides_dir(requested_cyclist).resolve()
+    allowed_root = get_rides_root().resolve()
     try:
         target_dir.relative_to(allowed_root)
     except ValueError as exc:

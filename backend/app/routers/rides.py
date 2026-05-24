@@ -118,10 +118,7 @@ async def import_fit_files(
             detail=f"Too many files. Maximum is {MAX_FIT_UPLOAD_FILES}.",
         )
 
-    target_cyclist, target_dir = resolve_target_cyclist_for_fit_upload(
-        current_user, cyclist
-    )
-
+    target_cyclist, target_dir = resolve_target_cyclist_for_fit_upload(current_user)
     saved: list[dict[str, str | int]] = []
     skipped: list[dict[str, str]] = []
 

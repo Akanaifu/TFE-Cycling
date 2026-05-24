@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import CyclistSelector from "./CyclistSelector";
 import { commonPipelineStyles, predictionPageStyles } from "./pipelineStyles";
 
 interface AuthUser {
@@ -27,8 +26,6 @@ interface FitImportRunnerProps {
 export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
   const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL || "", []);
 
-  const isAdmin = authUser.role === "admin";
-  const [selectedCyclist, setSelectedCyclist] = useState("");
   const [fitFiles, setFitFiles] = useState<File[]>([]);
   const [loadingImport, setLoadingImport] = useState(false);
   const [fitImportError, setFitImportError] = useState<string | null>(null);
@@ -36,10 +33,6 @@ export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
     useState<FitImportResponse | null>(null);
 
   const handleImportFit = async () => {
-    if (!selectedCyclist) {
-      setFitImportError("Aucun cycliste disponible pour l'import.");
-      return;
-    }
     if (fitFiles.length === 0) {
       setFitImportError("Sélectionne au moins un fichier .fit.");
       return;
@@ -53,9 +46,6 @@ export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
       const formData = new FormData();
       for (const file of fitFiles) {
         formData.append("files", file);
-      }
-      if (isAdmin) {
-        formData.append("cyclist", selectedCyclist);
       }
 
       const response = await fetch(`${apiUrl}/rides/import-fit`, {
@@ -103,20 +93,10 @@ export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
           Importe un ou plusieurs fichiers .fit. Les sorties sont converties au
           format PKL standard du projet.
         </p>
-      </div>
-
-      <div className={commonPipelineStyles.card}>
-        <h2 className={commonPipelineStyles.sectionTitle}>Cycliste cible</h2>
-        <CyclistSelector
-          selectedCyclist={selectedCyclist}
-          onSelectCyclist={setSelectedCyclist}
-          isAdmin={isAdmin}
-        />
-        {!isAdmin && selectedCyclist && (
-          <p className={`${commonPipelineStyles.mutedText} mt-2`}>
-            Les imports seront enregistrés dans {selectedCyclist}.
-          </p>
-        )}
+        <p className={commonPipelineStyles.mutedText}>
+          Les fichiers seront enregistrés automatiquement dans le dossier du
+          compte connecté{authUser.display_name ? ` (${authUser.display_name})` : ""}.
+        </p>
       </div>
 
       <div className={`${commonPipelineStyles.card} space-y-4`}>
@@ -135,7 +115,7 @@ export default function FitImportRunner({ authUser }: FitImportRunnerProps) {
         <button
           type="button"
           onClick={handleImportFit}
-          disabled={loadingImport || fitFiles.length === 0 || !selectedCyclist}
+          disabled={loadingImport || fitFiles.length === 0}
           className={commonPipelineStyles.buttonPrimary}
         >
           {loadingImport
