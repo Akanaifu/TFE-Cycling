@@ -43,7 +43,11 @@ def resolve_authorized_cyclist_and_dir(
         )
 
     if is_admin(user):
-        allowed_cyclists = set(database_service.get_cyclist_options(admin=True))
+        allowed_cyclists = {
+            str(option.get("value", "") or "").strip()
+            for option in database_service.get_cyclist_options(admin=True)
+            if isinstance(option, dict)
+        }
     else:
         allowed_cyclists = set(
             database_service.get_user_allowed_cyclists(str(user["id"]))

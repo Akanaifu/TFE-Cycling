@@ -576,35 +576,25 @@ def get_user_rides_dir(user_id: str) -> str | None:
     return str(get_cyclist_rides_dir(cyclist))
 
 
-def _extract_cyclists_from_paths(rows_data: list[dict[str, Any]]) -> list[str]:
-    cyclists: set[str] = set()
-    for row in rows_data:
-        raw_path = str(row.get("file_path", "") or "").strip()
-        cyclist = _extract_cyclist_from_file_path_value(raw_path)
-        if cyclist:
-            cyclists.add(cyclist)
-
-    return _sorted_cyclists(cyclists)
-
-
 def _get_all_cyclist_options(cur: Any) -> tuple[list[str], dict[str, str]]:
-    """Return all known cyclist folder names and optional display names."""
-    used_cyclists = _all_used_cyclists(cur)
-    display_names: dict[str, str] = {}
-
+    """Return DB-backed cyclist folder names and optional display names."""
     cur.execute("""
         SELECT uc.cyclist, u.display_name
         FROM user_cyclists uc
         LEFT JOIN users u ON u.id = uc.user_id
         """)
+
+    cyclists: list[str] = []
+    display_names: dict[str, str] = {}
     for row in cur.fetchall():
         cyclist = str(row.get("cyclist", "") or "").strip()
         if not cyclist:
             continue
+        cyclists.append(cyclist)
         display_name = str(row.get("display_name", "") or "").strip()
         display_names[cyclist] = display_name
 
-    return _sorted_cyclists(used_cyclists), display_names
+    return _sorted_cyclists(set(cyclists)), display_names
 
 
 def get_cyclist_options(*, admin: bool = False) -> list[str] | list[dict[str, str]]:
@@ -634,7 +624,7 @@ def get_cyclist_options(*, admin: bool = False) -> list[str] | list[dict[str, st
 def get_user_allowed_cyclists(user_id: str) -> list[str]:
     """Return cyclist folder names visible to the user.
 
-    Uses explicit user_cyclists mapping when available, with legacy ride-path fallback.
+    Uses explicit user_cyclists mapping only.
     """
     psycopg, rows = _get_psycopg_modules()
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
@@ -645,8 +635,7 @@ def get_user_allowed_cyclists(user_id: str) -> list[str]:
             if mapped:
                 return [mapped]
 
-            legacy = _legacy_cyclists_for_user(cur, user_id)
-            return legacy
+            return []
 
 
 def upsert_rides_from_strava_activities(
