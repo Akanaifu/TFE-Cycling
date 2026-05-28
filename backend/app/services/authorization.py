@@ -43,7 +43,11 @@ def resolve_authorized_cyclist_and_dir(
         )
 
     if is_admin(user):
-        allowed_cyclists = set(database_service.get_all_cyclists_from_rides())
+        allowed_cyclists = {
+            str(option.get("value", "") or "").strip()
+            for option in database_service.get_cyclist_options(admin=True)
+            if isinstance(option, dict)
+        }
     else:
         allowed_cyclists = set(
             database_service.get_user_allowed_cyclists(str(user["id"]))
@@ -55,5 +59,5 @@ def resolve_authorized_cyclist_and_dir(
             detail="Access denied for requested cyclist",
         )
 
-    effective_dir = f"../DB/rides/{requested_cyclist}"
+    effective_dir = str(database_service.get_cyclist_rides_dir(requested_cyclist))
     return requested_cyclist, effective_dir

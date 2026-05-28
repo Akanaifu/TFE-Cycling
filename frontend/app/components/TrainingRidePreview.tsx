@@ -32,6 +32,10 @@ interface TrainingRidePreviewProps {
   modelLabel?: "A" | "B";
 }
 
+function formatCyclistLabel(cyclist: string): string {
+  return cyclist.replace(/^cyclist/i, "Cycliste ");
+}
+
 export default function TrainingRidePreview({
   cyclist,
   rideIndex,
@@ -114,7 +118,7 @@ export default function TrainingRidePreview({
             <div>
               <p className="text-xs font-medium text-[#7c5a5d]">CYCLISTE</p>
               <p className="text-lg font-bold text-[#250902]">
-                {rideData.cyclist.replace("cyclist", "Cycliste ")}
+                {formatCyclistLabel(rideData.cyclist)}
               </p>
             </div>
             <div>

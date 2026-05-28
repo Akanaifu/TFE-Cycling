@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 import importlib
+from uuid import uuid4
 from .utils import _read_env
+from .storage_paths import get_cyclist_rides_dir
 
 CYCLIST_PATTERN_PREFIX = "cyclist"
 
@@ -14,7 +16,11 @@ CYCLIST_PATTERN_PREFIX = "cyclist"
 def get_all_rides() -> list[dict[str, Any]]:
     """Get all rides from the database."""
     psycopg, rows = _get_psycopg_modules()
-    query = "SELECT id, user_id, activity_id, file_path FROM rides"
+    query = """
+        SELECT activity_id, user_id, start_date_local, sport_type, distance_m,
+               moving_time_s, avg_hr, avg_watts, file_name, created_at
+        FROM rides
+    """
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute(query)
@@ -79,12 +85,9 @@ def get_database_status() -> dict[str, Any]:
 
                 for table_name in [
                     "users",
-                    "strava_accounts",
+                    "strava_account",
                     "rides",
-                    "verif_mail",
-                    "sync_jobs",
-                    "prediction_runs",
-                    "app_config_secrets",
+                    "verif_email",
                 ]:
                     cur.execute(
                         psycopg_sql.SQL("SELECT COUNT(*) FROM {}").format(
@@ -120,11 +123,6 @@ def _get_psycopg_modules() -> tuple[Any, Any]:
         return psycopg, rows
     except ModuleNotFoundError as exc:
         raise RuntimeError(f"Missing dependency psycopg: {exc}") from exc
-
-
-def get_project_root() -> Path:
-    """Return the repository root directory."""
-    return Path(__file__).resolve().parents[3]
 
 
 def _sorted_cyclists(cyclists: set[str]) -> list[str]:
@@ -164,7 +162,7 @@ def _ensure_user_cyclists_table(cur: Any) -> None:
 
 
 def _get_mapped_cyclist_for_user(cur: Any, user_id: str) -> str | None:
-    cur.execute("SELECT cyclist FROM user_cyclists WHERE user_id = %s", (user_id,))
+    cur.execute("SELECT cyclist FROM users WHERE id = %s", (user_id,))
     row = cur.fetchone()
     if not row:
         return None
@@ -187,33 +185,14 @@ def _legacy_cyclists_for_user(cur: Any, user_id: str) -> list[str]:
 def _all_used_cyclists(cur: Any) -> set[str]:
     used: set[str] = set()
 
-    cur.execute("SELECT cyclist FROM user_cyclists")
+    cur.execute("SELECT cyclist FROM users WHERE cyclist IS NOT NULL AND cyclist <> ''")
     for row in cur.fetchall():
         value = row[0] if isinstance(row, tuple) else row.get("cyclist")
         cyclist = str(value or "").strip()
         if cyclist:
             used.add(cyclist)
 
-    cur.execute("SELECT file_path FROM rides")
-    for row in cur.fetchall():
-        value = row[0] if isinstance(row, tuple) else row.get("file_path")
-        cyclist = _extract_cyclist_from_file_path_value(str(value or ""))
-        if cyclist:
-            used.add(cyclist)
-
     return used
-
-
-def _insert_user_cyclist_mapping(cur: Any, user_id: str, cyclist: str) -> bool:
-    cur.execute(
-        """
-        INSERT INTO user_cyclists (user_id, cyclist)
-        VALUES (%s, %s)
-        ON CONFLICT (user_id) DO NOTHING
-        """,
-        (user_id, cyclist),
-    )
-    return cur.rowcount > 0
 
 
 def get_or_assign_user_cyclist(user_id: str) -> str:
@@ -222,27 +201,28 @@ def get_or_assign_user_cyclist(user_id: str) -> str:
 
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
-            _ensure_user_cyclists_table(cur)
-
             mapped = _get_mapped_cyclist_for_user(cur, user_id)
             if mapped:
                 return mapped
-
-            legacy = _legacy_cyclists_for_user(cur, user_id)
-            for cyclist in legacy:
-                if _insert_user_cyclist_mapping(cur, user_id, cyclist):
-                    return cyclist
-                mapped = _get_mapped_cyclist_for_user(cur, user_id)
-                if mapped:
-                    return mapped
 
             used = _all_used_cyclists(cur)
             idx = 0
             while True:
                 candidate = f"{CYCLIST_PATTERN_PREFIX}{idx}"
                 if candidate not in used:
-                    if _insert_user_cyclist_mapping(cur, user_id, candidate):
-                        return candidate
+                    cur.execute(
+                        """
+                        UPDATE users
+                        SET cyclist = %s
+                        WHERE id = %s AND cyclist IS NULL
+                        RETURNING cyclist
+                        """,
+                        (candidate, user_id),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        conn.commit()
+                        return str(row["cyclist"] if isinstance(row, dict) else row[0])
                     mapped = _get_mapped_cyclist_for_user(cur, user_id)
                     if mapped:
                         return mapped
@@ -272,14 +252,21 @@ def build_strava_activity_file_path(
         file_stem = f"activity_{activity_id}"
 
     file_name = f"{file_stem}_{athlete_id}_{activity_id}.pkl"
-    absolute_path = get_project_root() / "DB" / "rides" / cyclist_folder / file_name
+    absolute_path = get_cyclist_rides_dir(cyclist_folder) / file_name
     return file_name, absolute_path
 
 
 def get_user_by_email(email: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, email, display_name, password_hash, role, email_verified_at, created_at
+        SELECT id,
+               email,
+               display_name,
+               password AS password_hash,
+               role,
+               verified_at AS email_verified_at,
+               cyclist,
+               created_at
         FROM users
         WHERE email = %s
         LIMIT 1
@@ -294,7 +281,14 @@ def get_user_by_email(email: str) -> dict[str, Any] | None:
 def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, email, display_name, password_hash, role, email_verified_at, created_at
+        SELECT id,
+               email,
+               display_name,
+               password AS password_hash,
+               role,
+               verified_at AS email_verified_at,
+               cyclist,
+               created_at
         FROM users
         WHERE id = %s
         LIMIT 1
@@ -312,8 +306,8 @@ def get_users_with_non_bcrypt_hashes(limit: int = 20) -> list[str]:
     query = """
         SELECT email
         FROM users
-        WHERE COALESCE(password_hash, '') = ''
-           OR LEFT(password_hash, 2) <> '$2'
+        WHERE COALESCE(password, '') = ''
+           OR LEFT(password, 2) <> '$2'
         ORDER BY email ASC
         LIMIT %s
     """
@@ -330,7 +324,8 @@ def create_user(
     password_hash: str,
     display_name: str = "",
     role: str = "user",
-    email_verified_at: datetime | None = None,
+    verified_at: datetime | None = None,
+    cyclist: str | None = None,
 ) -> dict[str, Any] | None:
     """Create a new user with email, password hash, and optional display name."""
     psycopg, rows = _get_psycopg_modules()
@@ -341,20 +336,29 @@ def create_user(
         return None
 
     query = """
-        INSERT INTO users (email, password_hash, display_name, role, email_verified_at)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING id, email, display_name, password_hash, role, email_verified_at, created_at
+        INSERT INTO users (id, email, password, display_name, role, verified_at, cyclist)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id,
+                  email,
+                  display_name,
+                  password AS password_hash,
+                  role,
+                  verified_at AS email_verified_at,
+                  cyclist,
+                  created_at
     """
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 query,
                 (
+                    uuid4(),
                     email.strip().lower(),
                     password_hash,
                     display_name,
                     role,
-                    email_verified_at,
+                    verified_at,
+                    cyclist,
                 ),
             )
             row = cur.fetchone()
@@ -370,26 +374,25 @@ def create_email_verification_request(
     attempts_left: int = 2,
 ) -> dict[str, Any]:
     psycopg, rows = _get_psycopg_modules()
+    _ = email
     query = """
-        INSERT INTO verif_mail (
+        INSERT INTO verif_email (
             user_id,
-            email,
             code_hash,
             attempts_left,
             expires_at,
             sent_at,
             updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, now(), now())
+        VALUES (%s, %s, %s, %s, now(), now())
         ON CONFLICT (user_id) DO UPDATE SET
-            email = EXCLUDED.email,
             code_hash = EXCLUDED.code_hash,
             attempts_left = EXCLUDED.attempts_left,
             expires_at = EXCLUDED.expires_at,
             sent_at = now(),
             verified_at = NULL,
             updated_at = now()
-        RETURNING id, user_id, email, code_hash, attempts_left, expires_at, sent_at, verified_at, created_at, updated_at
+        RETURNING user_id, code_hash, attempts_left, expires_at, sent_at, verified_at, updated_at
     """
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
@@ -397,7 +400,6 @@ def create_email_verification_request(
                 query,
                 (
                     user_id,
-                    email.strip().lower(),
                     code_hash,
                     int(attempts_left),
                     expires_at,
@@ -410,8 +412,8 @@ def create_email_verification_request(
 def get_email_verification_request(user_id: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, user_id, email, code_hash, attempts_left, expires_at, sent_at, verified_at, created_at, updated_at
-        FROM verif_mail
+        SELECT user_id, code_hash, attempts_left, expires_at, sent_at, verified_at, updated_at
+        FROM verif_email
         WHERE user_id = %s
         LIMIT 1
     """
@@ -425,12 +427,12 @@ def get_email_verification_request(user_id: str) -> dict[str, Any] | None:
 def decrement_email_verification_attempt(user_id: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        UPDATE verif_mail
+        UPDATE verif_email
         SET attempts_left = GREATEST(attempts_left - 1, 0),
             updated_at = now()
         WHERE user_id = %s
           AND attempts_left > 0
-        RETURNING id, user_id, email, code_hash, attempts_left, expires_at, sent_at, verified_at, created_at, updated_at
+        RETURNING user_id, code_hash, attempts_left, expires_at, sent_at, verified_at, updated_at
     """
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
@@ -444,10 +446,10 @@ def mark_user_email_verified(user_id: str) -> None:
     with psycopg.connect(get_database_url()) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = %s",
+                "UPDATE users SET verified_at = COALESCE(verified_at, now()) WHERE id = %s",
                 (user_id,),
             )
-            cur.execute("DELETE FROM verif_mail WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM verif_email WHERE user_id = %s", (user_id,))
         conn.commit()
 
 
@@ -470,7 +472,7 @@ def upsert_strava_account_for_user(
 ) -> dict[str, Any]:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        INSERT INTO strava_accounts (
+        INSERT INTO strava_account (
             user_id,
             athlete_id,
             access_token_enc,
@@ -479,15 +481,14 @@ def upsert_strava_account_for_user(
             scope
         )
         VALUES (%s, %s, %s, %s, to_timestamp(%s), %s)
-        ON CONFLICT (athlete_id) DO UPDATE
+        ON CONFLICT (user_id) DO UPDATE
         SET
-            user_id = EXCLUDED.user_id,
             access_token_enc = EXCLUDED.access_token_enc,
             refresh_token_enc = EXCLUDED.refresh_token_enc,
             expires_at = EXCLUDED.expires_at,
             scope = EXCLUDED.scope,
             updated_at = now()
-        RETURNING id, user_id, athlete_id, expires_at, scope
+        RETURNING user_id, athlete_id, expires_at, scope, created_at, updated_at
     """
     expires_value = int(expires_at) if expires_at is not None else 0
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
@@ -510,8 +511,8 @@ def upsert_strava_account_for_user(
 def get_strava_account_for_user(user_id: str) -> dict[str, Any] | None:
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, scope, created_at, updated_at
-        FROM strava_accounts
+        SELECT user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, scope, created_at, updated_at
+        FROM strava_account
         WHERE user_id = %s
         LIMIT 1
     """
@@ -525,7 +526,7 @@ def get_strava_account_for_user(user_id: str) -> dict[str, Any] | None:
 def delete_strava_account_for_user(user_id: str) -> int:
     """Delete Strava account row for a user and return number of deleted rows."""
     psycopg, _ = _get_psycopg_modules()
-    query = "DELETE FROM strava_accounts WHERE user_id = %s"
+    query = "DELETE FROM strava_account WHERE user_id = %s"
     with psycopg.connect(get_database_url()) as conn:
         with conn.cursor() as cur:
             cur.execute(query, (user_id,))
@@ -538,8 +539,8 @@ def get_stale_strava_accounts(
     """Return stale Strava account rows based on updated_at threshold."""
     psycopg, rows = _get_psycopg_modules()
     query = """
-        SELECT id, user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, updated_at
-        FROM strava_accounts
+        SELECT user_id, athlete_id, access_token_enc, refresh_token_enc, expires_at, updated_at
+        FROM strava_account
         WHERE updated_at < %s
         ORDER BY updated_at ASC
         LIMIT %s
@@ -559,7 +560,7 @@ def update_strava_account_tokens(
 ) -> None:
     psycopg, _ = _get_psycopg_modules()
     query = """
-        UPDATE strava_accounts
+        UPDATE strava_account
         SET access_token_enc = %s,
             refresh_token_enc = %s,
             expires_at = to_timestamp(%s),
@@ -577,101 +578,64 @@ def update_strava_account_tokens(
 
 def get_user_rides_dir(user_id: str) -> str | None:
     cyclist = get_or_assign_user_cyclist(user_id)
-    return f"DB/rides/{cyclist}"
+    return str(get_cyclist_rides_dir(cyclist))
 
 
-def _extract_cyclists_from_paths(rows_data: list[dict[str, Any]]) -> list[str]:
-    cyclists: set[str] = set()
-    for row in rows_data:
-        raw_path = str(row.get("file_path", "") or "").strip()
-        cyclist = _extract_cyclist_from_file_path_value(raw_path)
-        if cyclist:
-            cyclists.add(cyclist)
+def _get_all_cyclist_options(cur: Any) -> tuple[list[str], dict[str, str]]:
+    """Return DB-backed cyclist folder names and optional display names."""
+    cur.execute("""
+        SELECT cyclist, display_name
+        FROM users
+        WHERE cyclist IS NOT NULL AND cyclist <> ''
+        """)
 
-    return _sorted_cyclists(cyclists)
+    cyclists: list[str] = []
+    display_names: dict[str, str] = {}
+    for row in cur.fetchall():
+        cyclist = str(row.get("cyclist", "") or "").strip()
+        if not cyclist:
+            continue
+        cyclists.append(cyclist)
+        display_name = str(row.get("display_name", "") or "").strip()
+        display_names[cyclist] = display_name
+
+    return _sorted_cyclists(set(cyclists)), display_names
 
 
-def get_all_cyclists_from_rides() -> list[str]:
-    """Return all cyclist folder names from explicit mapping and legacy ride paths."""
+def get_cyclist_options(*, admin: bool = False) -> list[str] | list[dict[str, str]]:
+    """Return cyclist options, with labels for admin-facing views.
+
+    Non-admin callers keep the legacy list[str] response.
+    Admin callers receive a list of {value, label} dictionaries.
+    """
     psycopg, rows = _get_psycopg_modules()
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
         with conn.cursor() as cur:
-            _ensure_user_cyclists_table(cur)
+            cyclists, display_names = _get_all_cyclist_options(cur)
+            if admin:
+                return [
+                    {
+                        "value": cyclist,
+                        "label": display_names.get(cyclist) or cyclist,
+                    }
+                    for cyclist in cyclists
+                ]
 
-            cyclists: set[str] = set()
-
-            cur.execute("SELECT cyclist FROM user_cyclists")
-            for row in cur.fetchall():
-                cyclist = str(row.get("cyclist", "") or "").strip()
-                if cyclist:
-                    cyclists.add(cyclist)
-
-            cur.execute("SELECT file_path FROM rides")
-            rows_data = cur.fetchall()
-            cyclists.update(_extract_cyclists_from_paths(rows_data))
-
-    return _sorted_cyclists(cyclists)
-
-
-def get_admin_cyclist_options() -> list[dict[str, str]]:
-    """Return admin-facing cyclist options with display labels when available."""
-    psycopg, rows = _get_psycopg_modules()
-    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
-        with conn.cursor() as cur:
-            _ensure_user_cyclists_table(cur)
-
-            used_cyclists = _all_used_cyclists(cur)
-            display_names: dict[str, str] = {}
-
-            cur.execute("""
-                SELECT uc.cyclist, u.display_name
-                FROM user_cyclists uc
-                LEFT JOIN users u ON u.id = uc.user_id
-                """)
-            for row in cur.fetchall():
-                cyclist = str(row.get("cyclist", "") or "").strip()
-                if not cyclist:
-                    continue
-                display_name = str(row.get("display_name", "") or "").strip()
-                display_names[cyclist] = display_name
-
-    return [
-        {
-            "value": cyclist,
-            "label": display_names.get(cyclist) or cyclist,
-        }
-        for cyclist in _sorted_cyclists(used_cyclists)
-    ]
+            return cyclists
 
 
 def get_user_allowed_cyclists(user_id: str) -> list[str]:
     """Return cyclist folder names visible to the user.
 
-    Uses explicit user_cyclists mapping when available, with legacy ride-path fallback.
+    Uses the cyclist stored on users.
     """
-    psycopg, rows = _get_psycopg_modules()
-    with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
-        with conn.cursor() as cur:
-            _ensure_user_cyclists_table(cur)
-
-            mapped = _get_mapped_cyclist_for_user(cur, user_id)
-            if mapped:
-                return [mapped]
-
-            legacy = _legacy_cyclists_for_user(cur, user_id)
-            return legacy
-
-
-def _get_user_default_cyclist(user_id: str) -> str:
-    """Resolve a unique cyclist folder for a user, allocating one when needed."""
-    return get_or_assign_user_cyclist(user_id)
+    cyclist = get_or_assign_user_cyclist(user_id)
+    return [cyclist] if cyclist else []
 
 
 def upsert_rides_from_strava_activities(
     *,
     user_id: str,
-    strava_account_id: str,
-    athlete_id: int,
     activities: list[dict[str, Any]],
 ) -> dict[str, int]:
     """Persist Strava activities into rides table.
@@ -705,28 +669,27 @@ def upsert_rides_from_strava_activities(
     """
     upsert_query = """
         INSERT INTO rides (
-            user_id,
-            strava_account_id,
             activity_id,
+            user_id,
             start_date_local,
             sport_type,
             distance_m,
             moving_time_s,
             avg_hr,
             avg_watts,
-            file_path
+            file_name
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (user_id, activity_id) DO UPDATE
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (activity_id) DO UPDATE
         SET
-            strava_account_id = EXCLUDED.strava_account_id,
+            user_id = EXCLUDED.user_id,
             start_date_local = EXCLUDED.start_date_local,
             sport_type = EXCLUDED.sport_type,
             distance_m = EXCLUDED.distance_m,
             moving_time_s = EXCLUDED.moving_time_s,
             avg_hr = EXCLUDED.avg_hr,
             avg_watts = EXCLUDED.avg_watts,
-            file_path = EXCLUDED.file_path
+            file_name = EXCLUDED.file_name
     """
 
     with psycopg.connect(get_database_url(), row_factory=rows.dict_row) as conn:
@@ -757,25 +720,24 @@ def upsert_rides_from_strava_activities(
                 avg_watts = activity.get("average_watts")
                 sport_type = activity.get("sport_type")
 
-                file_path, _ = build_strava_activity_file_path(
-                    user_id=user_id,
-                    athlete_id=athlete_id,
-                    activity=activity,
-                )
+                file_name = str(
+                    activity.get("file_name") or activity.get("file_path") or ""
+                ).strip()
+                if not file_name:
+                    raise ValueError("Missing file_name for ride persistence")
 
                 cur.execute(
                     upsert_query,
                     (
-                        user_id,
-                        strava_account_id,
                         activity_id,
+                        user_id,
                         start_date_local,
                         sport_type,
                         distance_m,
                         moving_time_s,
                         avg_hr,
                         avg_watts,
-                        file_path,
+                        file_name,
                     ),
                 )
                 if activity_id in existing_ids:

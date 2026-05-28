@@ -20,7 +20,7 @@ async def get_cyclists_list(
     """List all available cyclists."""
     try:
         if is_admin(current_user):
-            cyclists = database_service.get_admin_cyclist_options()
+            cyclists = database_service.get_cyclist_options(admin=True)
         else:
             cyclists = database_service.get_user_allowed_cyclists(
                 str(current_user["id"])
