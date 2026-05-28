@@ -16,10 +16,7 @@ interface CyclistOption {
 }
 
 function formatCyclistLabel(cyclist: string): string {
-  return (
-    cyclist.charAt(0).toUpperCase() +
-    cyclist.slice(1).replace("cyclist", "Cycliste ")
-  );
+  return cyclist.replace(/^cyclist/i, "Cycliste ");
 }
 
 function normalizeCyclistOption(value: unknown): CyclistOption | null {

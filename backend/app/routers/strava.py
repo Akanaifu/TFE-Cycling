@@ -274,7 +274,7 @@ async def strava_get_activities(
                 notebook_service.write_pickle_secure(ride_df, absolute_path)
 
                 activity_with_path = dict(activity)
-                activity_with_path["file_path"] = stored_file_name
+                activity_with_path["file_name"] = stored_file_name
                 persisted_activities.append(activity_with_path)
             except (ValueError, RuntimeError, OSError, TypeError) as exc:
                 failed_activities += 1
@@ -292,8 +292,6 @@ async def strava_get_activities(
 
         persistence = database_service.upsert_rides_from_strava_activities(
             user_id=current_user_id,
-            strava_account_id=str(account["id"]),
-            athlete_id=athlete_id,
             activities=persisted_activities,
         )
 

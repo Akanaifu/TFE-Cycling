@@ -176,16 +176,16 @@ async def auth_resend_verification(
         if "Please wait" in msg or "recently sent" in msg:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=msg
-            )
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Failed to resend verification email: {exc}",
-        )
+        ) from exc
     except (ValueError, OSError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to resend verification email: {exc}",
-        )
+        ) from exc
 
     return {"ok": True, "message": "Verification email resent. Check your inbox."}
 
