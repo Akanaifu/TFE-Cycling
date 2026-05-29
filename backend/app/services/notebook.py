@@ -122,6 +122,20 @@ def write_pickle_secure(df: pd.DataFrame, file_path: str | os.PathLike) -> None:
     sig_path.write_text(f"v1:{signature}\n", encoding="utf-8")
 
 
+def has_hr_or_power_signal(df: pd.DataFrame) -> bool:
+    """Return True when a ride contains at least one non-null hr or power value."""
+    if not isinstance(df, pd.DataFrame):
+        return False
+
+    hr_series = (
+        pd.to_numeric(df["hr"], errors="coerce") if "hr" in df.columns else pd.Series(dtype=float)
+    )
+    po_series = (
+        pd.to_numeric(df["po"], errors="coerce") if "po" in df.columns else pd.Series(dtype=float)
+    )
+    return bool(hr_series.notna().any() or po_series.notna().any())
+
+
 def load_pickle_secure(file_path: str | os.PathLike) -> Any:
     """Load pickle with hardening checks (size, symlink, optional signature)."""
     target = Path(file_path)
