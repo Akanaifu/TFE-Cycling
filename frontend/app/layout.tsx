@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description:
     "Visualisation et analyse des modèles de prédiction de fréquence cardiaque pour le cyclisme",
   icons: {
-    icon: "/strava-app-icon-v3.png",
+    icon: "/strava-app-icon-v3.svg",
   },
 };
 
