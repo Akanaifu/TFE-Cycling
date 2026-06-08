@@ -3,6 +3,7 @@
 import tempfile
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 from fastapi import HTTPException, UploadFile, status
 import app.services.database as database_service
 from .storage_paths import get_cyclist_rides_dir, get_rides_root
@@ -40,6 +41,26 @@ async def save_uploaded_fit_to_temp(upload: UploadFile, max_bytes: int) -> Path:
     finally:
         with suppress(Exception):
             await upload.close()
+
+
+async def convert_uploaded_fit_to_project_df(
+    upload: UploadFile,
+    max_bytes: int,
+) -> tuple[Any | None, str | None]:
+    """Convert an uploaded FIT file to a project DataFrame and cleanup temp files."""
+    tmp_path: Path | None = None
+    try:
+        tmp_path = await save_uploaded_fit_to_temp(upload, max_bytes=max_bytes)
+        import app.services.fit_import as fit_import_service
+
+        converted = fit_import_service.convert_fit_to_project_df(tmp_path)
+        return converted, None
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        return None, str(exc)
+    finally:
+        with suppress(OSError):
+            if tmp_path is not None and tmp_path.exists():
+                tmp_path.unlink()
 
 
 def resolve_target_cyclist_for_fit_upload(user: dict) -> tuple[str, Path]:

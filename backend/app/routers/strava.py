@@ -230,6 +230,7 @@ async def strava_get_activities(
 
         persisted_activities: list[dict[str, object]] = []
         failed_activities = 0
+        skipped_no_signal_activities = 0
         activity_errors: list[str] = []
         athlete_id = int(account.get("athlete_id") or 0)
         if athlete_id <= 0:
@@ -270,6 +271,13 @@ async def strava_get_activities(
                     streams=streams,
                 )
 
+                if not notebook_service.has_hr_or_power_signal(ride_df):
+                    skipped_no_signal_activities += 1
+                    activity_errors.append(
+                        f"activity {activity_id}: no heart rate nor power data"
+                    )
+                    continue
+
                 absolute_path.parent.mkdir(parents=True, exist_ok=True)
                 notebook_service.write_pickle_secure(ride_df, absolute_path)
 
@@ -304,6 +312,7 @@ async def strava_get_activities(
             "created_count": int(persistence.get("created_count", 0)),
             "updated_count": int(persistence.get("updated_count", 0)),
             "skipped_count": int(persistence.get("skipped_count", 0)),
+            "skipped_no_signal_count": skipped_no_signal_activities,
             "failed_count": failed_activities,
         }
     except ValueError as exc:

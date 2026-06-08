@@ -4,7 +4,6 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    Form,
     HTTPException,
     Query,
     UploadFile,
@@ -19,6 +18,7 @@ import app.services.fit_import as fit_import_service
 import app.services.notebook as notebook_service
 from app.services.authorization import is_admin, resolve_authorized_cyclist_and_dir
 from app.services.file_handling import (
+    convert_uploaded_fit_to_project_df,
     save_uploaded_fit_to_temp,
     resolve_target_cyclist_for_fit_upload,
 )
@@ -38,27 +38,16 @@ async def get_training_ride(
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Get a single training ride data."""
-    try:
-        if not is_admin(current_user):
-            allowed = set(
-                database_service.get_user_allowed_cyclists(str(current_user["id"]))
+    if not is_admin(current_user):
+        allowed = set(database_service.get_user_allowed_cyclists(str(current_user["id"])))
+        if cyclist not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied for this cyclist",
             )
-            if cyclist not in allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied for this cyclist",
-                )
 
-        get_single_ride_fn = getattr(notebook_service, "get_single_ride")
-        return get_single_ride_fn(cyclist, ride_index)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        if "No readable pickle files found" in str(exc):
-            raise HTTPException(status_code=400, detail="Le dossier est vide.") from exc
-        raise HTTPException(
-            status_code=400, detail=f"Failed to get ride: {exc}"
-        ) from exc
+    get_single_ride_fn = getattr(notebook_service, "get_single_ride")
+    return get_single_ride_fn(cyclist, ride_index)
 
 
 @router.get("/list")
@@ -67,42 +56,34 @@ async def list_rides(
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """List available rides in a directory with basic info."""
-    try:
-        requested_cyclist, effective_dir = resolve_authorized_cyclist_and_dir(
-            current_user, dir_path
-        )
+    requested_cyclist, effective_dir = resolve_authorized_cyclist_and_dir(
+        current_user, dir_path
+    )
 
-        rides = notebook_service.extract_donnee_pickle(effective_dir)
-        ride_list = []
-        for i, ride in enumerate(rides, start=1):
-            datetime_label = ride.attrs.get("ride_datetime_label", "unknown")
-            ride_list.append(
-                {
-                    "index": i,
-                    "datetime": datetime_label,
-                    "points": int(ride.shape[0]),
-                    "columns": [str(c) for c in ride.columns.tolist()],
-                }
-            )
-        return {
-            "ok": True,
-            "cyclist": requested_cyclist,
-            "dir_path": str(effective_dir),
-            "n_rides": len(rides),
-            "rides": ride_list,
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to list rides: {exc}"
-        ) from exc
+    rides = notebook_service.extract_donnee_pickle(effective_dir)
+    ride_list = []
+    for i, ride in enumerate(rides, start=1):
+        datetime_label = ride.attrs.get("ride_datetime_label", "unknown")
+        ride_list.append(
+            {
+                "index": i,
+                "datetime": datetime_label,
+                "points": int(ride.shape[0]),
+                "columns": [str(c) for c in ride.columns.tolist()],
+            }
+        )
+    return {
+        "ok": True,
+        "cyclist": requested_cyclist,
+        "dir_path": str(effective_dir),
+        "n_rides": len(rides),
+        "rides": ride_list,
+    }
 
 
 @router.post("/import-fit")
 async def import_fit_files(
     files: list[UploadFile] = File(..., description="One or many .fit files"),
-    cyclist: str | None = Form(default=None),
     current_user: dict = Depends(auth_service.get_current_user),
 ) -> dict:
     """Import one or many FIT files and save canonical PKL files under DB/rides."""
@@ -133,42 +114,43 @@ async def import_fit_files(
             )
             continue
 
-        tmp_path: Path | None = None
-        try:
-            tmp_path = await save_uploaded_fit_to_temp(
-                upload, max_bytes=MAX_FIT_UPLOAD_BYTES
-            )
-            converted = fit_import_service.convert_fit_to_project_df(tmp_path)
-            target_name = fit_import_service.convert_name_file(original_name)
-            target_path = target_dir / target_name
+        converted, import_error = await convert_uploaded_fit_to_project_df(
+            upload, MAX_FIT_UPLOAD_BYTES
+        )
+        if import_error:
+            skipped.append({"file": original_name, "reason": import_error})
+            continue
 
-            if target_path.exists():
-                skipped.append(
-                    {
-                        "file": original_name,
-                        "reason": f"Target file already exists: {target_name}",
-                    }
-                )
-                continue
+        assert converted is not None
+        target_name = fit_import_service.convert_name_file(original_name)
+        target_path = target_dir / target_name
 
-            notebook_service.write_pickle_secure(converted, target_path)
-            saved.append(
+        if not notebook_service.has_hr_or_power_signal(converted):
+            skipped.append(
                 {
-                    "source_file": original_name,
-                    "saved_file": target_name,
-                    "rows": int(converted.shape[0]),
+                    "file": original_name,
+                    "reason": "Ride has no heart rate nor power data.",
                 }
             )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            skipped.append({"file": original_name, "reason": str(exc)})
-        finally:
-            try:
-                if tmp_path is not None and tmp_path.exists():
-                    tmp_path.unlink()
-            except Exception:
-                pass
+            continue
+
+        if target_path.exists():
+            skipped.append(
+                {
+                    "file": original_name,
+                    "reason": f"Target file already exists: {target_name}",
+                }
+            )
+            continue
+
+        notebook_service.write_pickle_secure(converted, target_path)
+        saved.append(
+            {
+                "source_file": original_name,
+                "saved_file": target_name,
+                "rows": int(converted.shape[0]),
+            }
+        )
 
     return {
         "ok": True,
