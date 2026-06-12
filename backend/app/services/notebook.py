@@ -128,10 +128,14 @@ def has_hr_or_power_signal(df: pd.DataFrame) -> bool:
         return False
 
     hr_series = (
-        pd.to_numeric(df["hr"], errors="coerce") if "hr" in df.columns else pd.Series(dtype=float)
+        pd.to_numeric(df["hr"], errors="coerce")
+        if "hr" in df.columns
+        else pd.Series(dtype=float)
     )
     po_series = (
-        pd.to_numeric(df["po"], errors="coerce") if "po" in df.columns else pd.Series(dtype=float)
+        pd.to_numeric(df["po"], errors="coerce")
+        if "po" in df.columns
+        else pd.Series(dtype=float)
     )
     return bool(hr_series.notna().any() or po_series.notna().any())
 
@@ -633,7 +637,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
     pred_2_all = prediction_physiologic(
         rides_copy_2,
         rides_train=[rides[config.train_ride_index_2 - 1]],
-        **PREDICTION_PARAMS["physio"],
+        **PREDICTION_PARAMS["alt_fitting"],
         calibration_ride_index=0,
         method="alt_fitting",
     )
@@ -671,7 +675,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
         pred_all_1 = prediction_physiologic(
             rides_copy_all_1,
             rides_train=[rides[config.train_ride_index_1 - 1]],
-            **PREDICTION_PARAMS["physio"],
+            **PREDICTION_PARAMS["alt_fitting"],
             calibration_ride_index=0,
             method="alt_fitting",
         )
@@ -683,7 +687,7 @@ def compare_models_trained(config: CompareModelsConfig) -> dict[str, Any]:
         pred_all_2 = prediction_physiologic(
             rides_copy_all_2,
             rides_train=[rides[config.train_ride_index_2 - 1]],
-            **PREDICTION_PARAMS["physio"],
+            **PREDICTION_PARAMS["alt_fitting"],
             calibration_ride_index=0,
             method="alt_fitting",
         )
