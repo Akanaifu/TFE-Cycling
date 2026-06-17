@@ -622,7 +622,12 @@ export default function StravaPipelineContent() {
                   <p>Athlete ID: {exchangeResult.athlete_id}</p>
                 )}
                 {exchangeResult.expires_at !== null && (
-                  <p>Expires At: {exchangeResult.expires_at}</p>
+                  <p>
+                    Expire le:{" "}
+                    {new Date(exchangeResult.expires_at * 1000).toLocaleString(
+                      "fr-FR",
+                    )}
+                  </p>
                 )}
               </div>
             )}
