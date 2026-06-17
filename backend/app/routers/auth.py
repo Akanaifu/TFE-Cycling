@@ -210,6 +210,12 @@ async def auth_register(
             detail="Email already registered",
         )
 
+    if len(payload.password < 8):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="password too short",
+        )
+
     # Hash password
     try:
         password_hash = auth_service.hash_password(payload.password)

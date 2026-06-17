@@ -36,6 +36,25 @@ function formatCyclistLabel(cyclist: string): string {
   return cyclist.replace(/^cyclist/i, "Cycliste ");
 }
 
+// def sec2min(seconde: int) -> tuple[int, int]:
+//     minute = seconde % 3600 // 60
+//     seconde_remain = seconde % 3600 % 60
+//     return minute, seconde_remain
+
+function sec2min(nbPoint: number) {
+  const hours = Math.floor(nbPoint / 3600);
+  const minute = Math.floor((nbPoint % 3600) / 60);
+  const seconde_remain = (nbPoint % 3600) % 60;
+  return [hours, minute, seconde_remain];
+}
+
+function displayTime(nbPoint: number) {
+  const heures = sec2min(nbPoint)[0];
+  const minutes = sec2min(nbPoint)[1];
+  const secondes = sec2min(nbPoint)[2];
+  return `${heures}:${minutes}:${secondes}`;
+}
+
 export default function TrainingRidePreview({
   cyclist,
   rideIndex,
@@ -95,7 +114,7 @@ export default function TrainingRidePreview({
   return (
     <div className="rounded-2xl border border-white/10 bg-[#fff7f4] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.18)]">
       <h3 className="mb-4 text-xl font-bold text-[#250902]">
-        📊 Ride d&apos;entraînement - Modèle {modelLabel ?? "A"}
+        Ride d&apos;entraînement - Modèle {modelLabel ?? "A"}
       </h3>
 
       {loading && (
@@ -134,9 +153,9 @@ export default function TrainingRidePreview({
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-[#7c5a5d]">POINTS</p>
+              <p className="text-xs font-medium text-[#7c5a5d]">DUREE</p>
               <p className="text-lg font-bold text-[#250902]">
-                {rideData.n_points}
+                {displayTime(rideData.n_points)}
               </p>
             </div>
           </div>
