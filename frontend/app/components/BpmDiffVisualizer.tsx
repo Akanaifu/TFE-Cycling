@@ -35,7 +35,19 @@ const formatDateLabel = (value: string): string => {
   }
   return trimmed.length > 10 ? trimmed.slice(0, 10) : trimmed;
 };
+function sec2min(nbPoint: number) {
+  const hours = Math.floor(nbPoint / 3600);
+  const minute = Math.floor((nbPoint % 3600) / 60);
+  const seconde_remain = (nbPoint % 3600) % 60;
+  return [hours, minute, seconde_remain];
+}
 
+function displayTime(nbPoint: number) {
+  const heures = sec2min(nbPoint)[0];
+  const minutes = sec2min(nbPoint)[1];
+  const secondes = sec2min(nbPoint)[2];
+  return `${heures}:${minutes}:${secondes}`;
+}
 export default function BpmDiffVisualizer({
   sectionTitle,
   sectionSubtitle,
@@ -225,7 +237,7 @@ export default function BpmDiffVisualizer({
                       Date/Heure
                     </th>
                     <th className={predictionPageStyles.tableHeaderCell}>
-                      Points
+                      Durée
                     </th>
                     <th className={predictionPageStyles.tableHeaderCell}>
                       Δ BPM moyen
@@ -245,7 +257,7 @@ export default function BpmDiffVisualizer({
                         {ride.datetime}
                       </td>
                       <td className={predictionPageStyles.tableCell}>
-                        {ride.nPoints}
+                        {displayTime(ride.nPoints)}
                       </td>
                       <td
                         className={predictionPageStyles.tableCell}
