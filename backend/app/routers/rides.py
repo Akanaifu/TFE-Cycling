@@ -10,7 +10,6 @@ from fastapi import (
     status,
 )
 import logging
-from pathlib import Path
 
 import app.services.auth as auth_service
 import app.services.database as database_service
@@ -19,7 +18,6 @@ import app.services.notebook as notebook_service
 from app.services.authorization import is_admin, resolve_authorized_cyclist_and_dir
 from app.services.file_handling import (
     convert_uploaded_fit_to_project_df,
-    save_uploaded_fit_to_temp,
     resolve_target_cyclist_for_fit_upload,
 )
 

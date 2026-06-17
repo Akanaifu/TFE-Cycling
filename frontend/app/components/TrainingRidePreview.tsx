@@ -36,11 +36,6 @@ function formatCyclistLabel(cyclist: string): string {
   return cyclist.replace(/^cyclist/i, "Cycliste ");
 }
 
-// def sec2min(seconde: int) -> tuple[int, int]:
-//     minute = seconde % 3600 // 60
-//     seconde_remain = seconde % 3600 % 60
-//     return minute, seconde_remain
-
 function sec2min(nbPoint: number) {
   const hours = Math.floor(nbPoint / 3600);
   const minute = Math.floor((nbPoint % 3600) / 60);
@@ -280,7 +275,7 @@ export default function TrainingRidePreview({
               </tbody>
             </table>
             <p className="mt-2 text-xs text-[#9fb4d2]">
-              Affichage des 5 premiers points
+              Affichage des 5 premiers secondes
             </p>
           </div>
         </div>

@@ -7,6 +7,20 @@ interface RideData {
   data: Record<string, unknown>[];
 }
 
+function sec2min(nbPoint: number) {
+  const hours = Math.floor(nbPoint / 3600);
+  const minute = Math.floor((nbPoint % 3600) / 60);
+  const seconde_remain = (nbPoint % 3600) % 60;
+  return [hours, minute, seconde_remain];
+}
+
+function displayTime(nbPoint: number) {
+  const heures = sec2min(nbPoint)[0];
+  const minutes = sec2min(nbPoint)[1];
+  const secondes = sec2min(nbPoint)[2];
+  return `${heures}:${minutes}:${secondes}`;
+}
+
 export default function RideSelector({
   rides,
   selectedIndex,
@@ -36,7 +50,7 @@ export default function RideSelector({
             <p className="font-semibold text-[#fff8d6]">Ride {idx + 1}</p>
             <p className="text-sm text-[#dbeafe]/80">{ride.datetime}</p>
             <p className="mt-1 text-xs text-[#9fb4d2]">
-              {ride.n_points} points
+              {displayTime(ride.n_points)}
             </p>
           </button>
         ))}

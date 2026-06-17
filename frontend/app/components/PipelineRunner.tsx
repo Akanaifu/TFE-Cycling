@@ -20,6 +20,23 @@ const toNumberOrNull = (value: unknown): number | null => {
   return null;
 };
 
+function sec2min(nbPoint: number) {
+  const hours = Math.floor(nbPoint / 3600);
+  const minute = Math.floor((nbPoint % 3600) / 60);
+  const seconde_remain = (nbPoint % 3600) % 60;
+  return [hours, minute, seconde_remain];
+}
+
+function displayTime(nbPoint: number | undefined) {
+  if (nbPoint === undefined) {
+    return "00:00:00";
+  }
+  const heures = sec2min(nbPoint)[0];
+  const minutes = sec2min(nbPoint)[1];
+  const secondes = sec2min(nbPoint)[2];
+  return `${heures}:${minutes}:${secondes}`;
+}
+
 interface AuthUser {
   id: string;
   email: string;
@@ -405,11 +422,9 @@ export default function PipelineRunner() {
                 </p>
               </div>
               <div className={predictionPageStyles.summaryCard}>
-                <p className={predictionPageStyles.summaryLabel}>
-                  Points par ride
-                </p>
+                <p className={predictionPageStyles.summaryLabel}>Durée</p>
                 <p className={predictionPageStyles.summaryValue}>
-                  {currentRide?.n_points || "-"}
+                  {displayTime(currentRide?.n_points) || "-"}
                 </p>
               </div>
             </div>
