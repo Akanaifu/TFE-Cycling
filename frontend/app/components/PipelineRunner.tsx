@@ -27,7 +27,10 @@ function sec2min(nbPoint: number) {
   return [hours, minute, seconde_remain];
 }
 
-function displayTime(nbPoint: number) {
+function displayTime(nbPoint: number | undefined) {
+  if (nbPoint === undefined) {
+    return "00:00:00";
+  }
   const heures = sec2min(nbPoint)[0];
   const minutes = sec2min(nbPoint)[1];
   const secondes = sec2min(nbPoint)[2];
